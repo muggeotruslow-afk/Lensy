@@ -1,16 +1,16 @@
 {
-  "name": "ocr-translator",
-  "version": "1.0.0",
-  "description": "OCR + Translation tool with hotkey selection",
+  "name": "lensy",
+  "version": "0.1.1",
+  "description": "Lensy — 框选屏幕翻译 + 单词查询 + Anki 生词本，Claude 风格暖色 UI",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win --x64",
     "pack": "electron-builder --dir"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": ["ocr", "translation", "electron", "deepseek", "tesseract", "anki", "vocabulary", "screenshot-translator"],
+  "author": "muggeotruslow-afk",
+  "license": "MIT",
   "type": "commonjs",
   "devDependencies": {
     "electron": "^42.3.0",
@@ -22,8 +22,8 @@
     "tesseract.js": "^7.0.0"
   },
   "build": {
-    "appId": "com.local.ocrtranslator",
-    "productName": "OCR Translator",
+    "appId": "com.muggeotruslow-afk.lensy",
+    "productName": "Lensy",
     "files": [
       "main.js",
       "overlay.html",
@@ -34,39 +34,26 @@
       "theme.css",
       "ocr.ps1",
       "package.json",
+      "assets/icon.png",
+      "assets/icon.ico",
       "node_modules/**/*"
     ],
     "extraResources": [
-      {
-        "from": "ocr.ps1",
-        "to": "ocr.ps1"
-      },
-      {
-        "from": "assets/tessdata",
-        "to": "tessdata"
-      }
+      { "from": "ocr.ps1", "to": "ocr.ps1" },
+      { "from": "assets/tessdata", "to": "tessdata" }
     ],
     "win": {
+      "icon": "assets/icon.ico",
       "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
       ]
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "OCR 翻译"
+      "shortcutName": "Lensy"
     },
     "directories": {
       "output": "dist"

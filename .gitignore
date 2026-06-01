@@ -15,7 +15,7 @@ config.json
 
 # Logs
 *.log
-ocr-translator.log
+lensy.log
 
 # OS files
 .DS_Store

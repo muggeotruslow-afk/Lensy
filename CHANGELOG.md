@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.1 — Branding (Lensy)
+
+### Changes
+
+- 🎨 项目正式更名 **OCR 翻译 → Lensy**
+- 🖼 加入官方 Logo / 图标（橙色 [A] + 放大镜）
+- 🪟 所有窗口标题统一带 "Lensy" 前缀
+- 🔔 系统托盘图标改用真 PNG（取代之前的像素方块）
+- 📦 `package.json` 加 `productName`、`build.win.icon`、关键词
+- 💾 自动迁移：v0.1.0 旧 `%APPDATA%\ocr-translator\` 数据自动迁移到新 `%APPDATA%\Lensy\`
+- 📝 README 加 Lensy logo header、徽章、和有道词典的差异化对比段落
+
 ## v0.1.0 — Initial Release
 
 ### Features

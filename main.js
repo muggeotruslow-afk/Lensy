@@ -7,7 +7,7 @@ const OpenAI = require('openai')
 const { createWorker, PSM } = require('tesseract.js')
 const { Jimp } = require('jimp')
 
-const LOG_PATH = path.join(os.tmpdir(), 'ocr-translator.log')
+const LOG_PATH = path.join(os.tmpdir(), 'lensy.log')
 // Rotate log if it grows beyond 1 MB
 try {
   if (fs.existsSync(LOG_PATH) && fs.statSync(LOG_PATH).size > 1024 * 1024) {
@@ -25,6 +25,19 @@ function log(...args) {
 const USER_DATA  = app.getPath('userData')
 const CFG_PATH   = path.join(USER_DATA, 'config.json')
 const VOCAB_PATH = path.join(USER_DATA, 'vocab.json')
+
+// Migrate from old ocr-translator app data dir (if user upgraded from v0.1.0)
+try {
+  const oldDir = path.join(path.dirname(USER_DATA), 'ocr-translator')
+  if (fs.existsSync(oldDir) && !fs.existsSync(CFG_PATH)) {
+    fs.mkdirSync(USER_DATA, { recursive: true })
+    for (const f of ['config.json', 'vocab.json']) {
+      const src = path.join(oldDir, f)
+      const dst = path.join(USER_DATA, f)
+      if (fs.existsSync(src) && !fs.existsSync(dst)) fs.copyFileSync(src, dst)
+    }
+  }
+} catch (e) { /* best-effort migration */ }
 
 const DEFAULT_SETTINGS = {
   deepseek_api_key: '',
@@ -95,7 +108,7 @@ function resolveOcrScript() {
   return path.join(__dirname, 'ocr.ps1')
 }
 const OCR_SCRIPT_SRC = resolveOcrScript()
-const OCR_SCRIPT_DST = path.join(os.tmpdir(), 'ocr-translator-ocr.ps1')
+const OCR_SCRIPT_DST = path.join(os.tmpdir(), 'lensy-ocr.ps1')
 try {
   fs.copyFileSync(OCR_SCRIPT_SRC, OCR_SCRIPT_DST)
   log('Copied OCR script from:', OCR_SCRIPT_SRC, 'to:', OCR_SCRIPT_DST)
@@ -324,6 +337,8 @@ let frozenScale = 1
 
 app.disableHardwareAcceleration()
 
+const APP_ICON = path.join(__dirname, 'assets', 'icon.png')
+
 // Prevent multiple instances
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -334,7 +349,7 @@ if (!gotLock) {
 app.on('second-instance', () => {
   // Another instance tried to launch — bring tray menu attention
   log('Second instance attempted, focusing existing')
-  if (tray) tray.displayBalloon({ title: 'OCR 翻译', content: '工具已在后台运行（系统托盘）' })
+  if (tray) tray.displayBalloon({ title: 'Lensy', content: 'Lensy 已在后台运行（系统托盘）' })
 })
 
 function registerHotkeys() {
@@ -359,16 +374,27 @@ function registerHotkeys() {
 
 // Small orange tray icon (16x16 solid)
 function makeTrayIcon() {
+  // Prefer real PNG icon; fall back to procedural pixel icon
+  const candidates = [
+    path.join(process.resourcesPath || '', 'icon.png'),
+    path.join(__dirname, 'assets', 'icon.png')
+  ]
+  for (const p of candidates) {
+    if (p && fs.existsSync(p)) {
+      const img = nativeImage.createFromPath(p)
+      if (!img.isEmpty()) return img.resize({ width: 16, height: 16 })
+    }
+  }
+  // Fallback: procedural orange square
   const w = 16, h = 16
   const buf = Buffer.alloc(w * h * 4)
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4
-      // border + inner color
       const edge = x === 0 || y === 0 || x === w-1 || y === h-1
-      buf[i]   = edge ? 0xB0 : 0xC9   // R / B (BGRA on Win)
-      buf[i+1] = edge ? 0x55 : 0x64   // G
-      buf[i+2] = edge ? 0x3A : 0x42   // B / R
+      buf[i]   = edge ? 0xB0 : 0xC9
+      buf[i+1] = edge ? 0x55 : 0x64
+      buf[i+2] = edge ? 0x3A : 0x42
       buf[i+3] = 0xFF
     }
   }
@@ -379,7 +405,7 @@ function buildTray() {
   if (tray) return
   try {
     tray = new Tray(makeTrayIcon())
-    tray.setToolTip('OCR 翻译')
+    tray.setToolTip('Lensy — 截图翻译 + 单词查询')
     const ctx = Menu.buildFromTemplate([
       { label: '📷 截图翻译', click: () => openOverlay() },
       { label: '📋 剪贴板翻译', click: () => openQuickTranslate() },
@@ -401,7 +427,7 @@ function buildTray() {
 app.whenReady().then(async () => {
   buildTray()
   registerHotkeys()
-  log('OCR Translator ready.')
+  log('Lensy ready.')
 
   // pre-warm Tesseract in background so first OCR is fast
   initTesseract().catch(e => log('Tesseract pre-warm failed:', e.message))
@@ -677,7 +703,8 @@ function openResultWindow(dataUrl, ocrResult, region) {
     height: winH,
     frame: true,
     alwaysOnTop: true,
-    title: 'OCR 翻译',
+    title: 'Lensy',
+    icon: APP_ICON,
     webPreferences: { nodeIntegration: true, contextIsolation: false }
   })
   resultWin = myWin
@@ -784,7 +811,7 @@ ipcMain.handle('vocab-export-csv', async () => {
       w.root ? `词根: ${w.root}` : '',
       w.frequency ? `[${w.frequency}]` : ''
     ].filter(Boolean).join('<br><br>')
-    const tags = ['ocr-translator', w.frequency].filter(Boolean).join(' ')
+    const tags = ['lensy', w.frequency].filter(Boolean).join(' ')
     lines.push([escape(w.word), escape(back), escape(tags)].join(','))
   }
 
@@ -848,7 +875,7 @@ ipcMain.handle('test-api', async () => {
 async function openQuickTranslate() {
   const text = clipboard.readText().trim()
   if (!text) {
-    if (tray) tray.displayBalloon({ title: 'OCR 翻译', content: '剪贴板为空，请先复制文字' })
+    if (tray) tray.displayBalloon({ title: 'Lensy', content: '剪贴板为空，请先复制文字' })
     return
   }
 
@@ -860,8 +887,9 @@ async function openQuickTranslate() {
 
   quickWin = new BrowserWindow({
     width: 520, height: 380,
-    title: '剪贴板翻译',
+    title: 'Lensy — 剪贴板翻译',
     alwaysOnTop: true,
+    icon: APP_ICON,
     webPreferences: { nodeIntegration: true, contextIsolation: false }
   })
   quickWin.loadFile('quick.html')
@@ -876,8 +904,9 @@ function openSettingsWindow() {
   if (settingsWin && !settingsWin.isDestroyed()) { settingsWin.focus(); return }
   settingsWin = new BrowserWindow({
     width: 560, height: 580,
-    title: '设置',
+    title: 'Lensy — 设置',
     resizable: false,
+    icon: APP_ICON,
     webPreferences: { nodeIntegration: true, contextIsolation: false }
   })
   settingsWin.loadFile('settings.html')
@@ -891,7 +920,8 @@ function openVocabWindow() {
   if (vocabWin && !vocabWin.isDestroyed()) { vocabWin.focus(); return }
   vocabWin = new BrowserWindow({
     width: 800, height: 600,
-    title: '生词本',
+    title: 'Lensy — 生词本',
+    icon: APP_ICON,
     webPreferences: { nodeIntegration: true, contextIsolation: false }
   })
   vocabWin.loadFile('vocab.html')
