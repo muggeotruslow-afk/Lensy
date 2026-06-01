@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100vw; height: 100vh;
+    overflow: hidden;
+    background: #000;
+    cursor: crosshair;
+    user-select: none;
+  }
+  #bg {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    object-fit: fill;
+    pointer-events: none;
+    z-index: 0;
+  }
+  canvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    z-index: 1;
+  }
+  #hint {
+    position: fixed;
+    top: 12px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.75);
+    color: #fff;
+    font: 13px/1.5 'Segoe UI', sans-serif;
+    padding: 6px 16px;
+    border-radius: 6px;
+    pointer-events: none;
+    z-index: 10;
+  }
+  #coords {
+    position: fixed;
+    bottom: 12px; right: 16px;
+    background: rgba(0,0,0,0.65);
+    color: #ddd;
+    font: 12px monospace;
+    padding: 4px 10px;
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 10;
+  }
+</style>
+</head>
+<body>
+<img id="bg" />
+<div id="hint">拖拽框选识别区域 &nbsp;|&nbsp; ESC 取消</div>
+<div id="coords">0, 0</div>
+<canvas id="c"></canvas>
+
+<script>
+const { ipcRenderer } = require('electron')
+const canvas = document.getElementById('c')
+const ctx = canvas.getContext('2d')
+const coords = document.getElementById('coords')
+
+canvas.width = window.innerWidth
+canvas.height = window.innerHeight
+
+let startX = 0, startY = 0, dragging = false
+
+function dimAll() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+}
+
+function draw(curX, curY) {
+  dimAll()
+  if (!dragging) return
+
+  const x = Math.min(startX, curX)
+  const y = Math.min(startY, curY)
+  const w = Math.abs(curX - startX)
+  const h = Math.abs(curY - startY)
+
+  ctx.clearRect(x, y, w, h)
+
+  ctx.strokeStyle = '#4af'
+  ctx.lineWidth = 2
+  ctx.strokeRect(x, y, w, h)
+
+  ctx.fillStyle = 'rgba(0,0,0,0.7)'
+  ctx.fillRect(x, y - 22, 90, 20)
+  ctx.fillStyle = '#fff'
+  ctx.font = '12px monospace'
+  ctx.fillText(`${w} × ${h}`, x + 5, y - 7)
+}
+
+document.addEventListener('mousedown', e => {
+  startX = e.clientX; startY = e.clientY
+  dragging = true
+})
+
+document.addEventListener('mousemove', e => {
+  coords.textContent = `${e.clientX}, ${e.clientY}`
+  draw(e.clientX, e.clientY)
+})
+
+let imgNaturalW = 0, imgNaturalH = 0
+
+function clientToImage(cx, cy) {
+  const img = document.getElementById('bg')
+  const rect = img.getBoundingClientRect()
+  const scaleX = imgNaturalW / rect.width
+  const scaleY = imgNaturalH / rect.height
+  return {
+    x: (cx - rect.left) * scaleX,
+    y: (cy - rect.top)  * scaleY
+  }
+}
+
+document.addEventListener('mouseup', e => {
+  if (!dragging) return
+  dragging = false
+
+  const cx = Math.min(startX, e.clientX)
+  const cy = Math.min(startY, e.clientY)
+  const cw = Math.abs(e.clientX - startX)
+  const ch = Math.abs(e.clientY - startY)
+
+  if (cw < 10 || ch < 10) { ipcRenderer.send('cancel-overlay'); return }
+
+  // Convert client (CSS px) to image (natural px) coordinates
+  const tl = clientToImage(cx, cy)
+  const br = clientToImage(cx + cw, cy + ch)
+
+  ipcRenderer.send('capture-region', {
+    x: tl.x,
+    y: tl.y,
+    w: br.x - tl.x,
+    h: br.y - tl.y
+  })
+})
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') ipcRenderer.send('cancel-overlay')
+})
+
+ipcRenderer.on('frozen-image', (event, payload) => {
+  imgNaturalW = payload.naturalWidth
+  imgNaturalH = payload.naturalHeight
+  const img = document.getElementById('bg')
+  img.onload = () => {
+    // image painted — tell main to show window
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => ipcRenderer.send('overlay-ready'))
+    })
+  }
+  img.src = payload.dataUrl
+})
+
+dimAll()
+</script>
+</body>
+</html>

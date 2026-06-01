@@ -1,0 +1,75 @@
+{
+  "name": "ocr-translator",
+  "version": "1.0.0",
+  "description": "OCR + Translation tool with hotkey selection",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win --x64",
+    "pack": "electron-builder --dir"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "electron": "^42.3.0",
+    "electron-builder": "^26.8.1"
+  },
+  "dependencies": {
+    "jimp": "^1.6.1",
+    "openai": "^6.39.1",
+    "tesseract.js": "^7.0.0"
+  },
+  "build": {
+    "appId": "com.local.ocrtranslator",
+    "productName": "OCR Translator",
+    "files": [
+      "main.js",
+      "overlay.html",
+      "result.html",
+      "settings.html",
+      "vocab.html",
+      "quick.html",
+      "theme.css",
+      "ocr.ps1",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "ocr.ps1",
+        "to": "ocr.ps1"
+      },
+      {
+        "from": "assets/tessdata",
+        "to": "tessdata"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "OCR 翻译"
+    },
+    "directories": {
+      "output": "dist"
+    }
+  }
+}

@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+out/
+build/
+*.exe
+
+# OCR language data (downloaded separately, see README)
+assets/tessdata/*.traineddata
+
+# User config (contains API keys)
+config.json
+
+# Logs
+*.log
+ocr-translator.log
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temp / test
+test-*.js
+test-*.html
+*.tmp
+
+# Lock files (optional — keep package-lock.json, exclude others)
+yarn.lock
+pnpm-lock.yaml

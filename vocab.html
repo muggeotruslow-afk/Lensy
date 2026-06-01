@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>生词本</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+  body { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  #toolbar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 18px;
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--border);
+  }
+  #toolbar h2 { font-size: 16px; font-weight: 600; }
+  #count { color: var(--text-muted); font-size: 12.5px; margin-left: 6px; }
+  #search { flex: 1; max-width: 280px; }
+  .spacer { flex: 1; }
+  #list { flex: 1; overflow-y: auto; padding: 12px 18px; }
+  .empty { text-align: center; color: var(--text-faint); padding: 60px 20px; font-size: 13px; }
+  .word-card {
+    background: var(--bg-elev);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    transition: border-color 0.15s;
+  }
+  .word-card:hover { border-color: var(--accent-soft); }
+  .wc-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+  .wc-word { font-size: 18px; font-weight: 600; }
+  .wc-phon { font-size: 12px; color: var(--text-muted); font-family: 'Consolas', monospace; }
+  .wc-pos  { font-size: 11px; padding: 1px 7px; border-radius: 4px;
+             background: var(--accent-bg); color: var(--accent); font-weight: 500; }
+  .wc-freq { font-size: 11px; padding: 1px 7px; border-radius: 4px;
+             background: var(--panel); color: var(--text-muted); }
+  .wc-meaning { font-size: 14px; color: var(--text); margin-top: 4px; line-height: 1.5; }
+  .wc-meaning-en { font-size: 12px; color: var(--text-muted); font-style: italic; margin-top: 3px; }
+  .wc-root { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; }
+  .wc-actions { margin-top: 8px; display: flex; gap: 8px; }
+  .wc-actions button { font-size: 11.5px; padding: 3px 9px; }
+  .wc-meta { font-size: 10.5px; color: var(--text-faint); margin-top: 5px; }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <h2>📖 生词本</h2>
+  <span id="count">0</span>
+  <input type="text" id="search" placeholder="搜索单词…">
+  <div class="spacer"></div>
+  <button class="btn-ghost btn" id="clear">清空</button>
+  <button class="btn" id="export-csv">导出 Anki CSV</button>
+</div>
+<div id="list">
+  <div class="empty">还没有收藏单词。在词义弹窗里点⭐添加。</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const { ipcRenderer } = require('electron')
+let allWords = []
+
+function toast(msg) {
+  const t = document.getElementById('toast')
+  t.textContent = msg; t.classList.add('show')
+  setTimeout(() => t.classList.remove('show'), 1500)
+}
+
+function speak(word) {
+  const u = new SpeechSynthesisUtterance(word)
+  u.lang = 'en-US'; u.rate = 0.9
+  speechSynthesis.speak(u)
+}
+
+function render(words) {
+  const list = document.getElementById('list')
+  document.getElementById('count').textContent = words.length + ' 词'
+  if (!words.length) {
+    list.innerHTML = '<div class="empty">还没有收藏单词。在词义弹窗里点⭐添加。</div>'
+    return
+  }
+  list.innerHTML = words.map(w => `
+    <div class="word-card" data-id="${w.id}">
+      <div class="wc-head">
+        <span class="wc-word">${w.word || ''}</span>
+        ${w.phonetic ? `<span class="wc-phon">${w.phonetic}</span>` : ''}
+        ${w.pos ? `<span class="wc-pos">${w.pos}</span>` : ''}
+        ${w.frequency ? `<span class="wc-freq">${w.frequency}</span>` : ''}
+      </div>
+      ${w.meaning_cn ? `<div class="wc-meaning">${w.meaning_cn}</div>` : ''}
+      ${w.meaning_en ? `<div class="wc-meaning-en">${w.meaning_en}</div>` : ''}
+      ${w.root ? `<div class="wc-root">📖 ${w.root}</div>` : ''}
+      <div class="wc-actions">
+        <button class="btn-ghost btn act-speak">🔊 朗读</button>
+        <button class="btn-danger btn act-remove">删除</button>
+      </div>
+      <div class="wc-meta">添加于 ${new Date(w.added_at).toLocaleString('zh-CN')}</div>
+    </div>
+  `).join('')
+
+  list.querySelectorAll('.word-card').forEach(card => {
+    const id = card.dataset.id
+    const word = words.find(w => w.id === id)
+    card.querySelector('.act-speak').addEventListener('click', () => speak(word.word))
+    card.querySelector('.act-remove').addEventListener('click', async () => {
+      await ipcRenderer.invoke('vocab-remove', id)
+      load()
+    })
+  })
+}
+
+async function load() {
+  const v = await ipcRenderer.invoke('vocab-list')
+  allWords = v.words || []
+  applyFilter()
+}
+
+function applyFilter() {
+  const q = document.getElementById('search').value.trim().toLowerCase()
+  if (!q) return render(allWords)
+  render(allWords.filter(w =>
+    (w.word || '').toLowerCase().includes(q) ||
+    (w.meaning_cn || '').includes(q)
+  ))
+}
+
+document.getElementById('search').addEventListener('input', applyFilter)
+
+document.getElementById('clear').addEventListener('click', async () => {
+  if (!confirm('确定清空所有生词？此操作不可撤销。')) return
+  await ipcRenderer.invoke('vocab-clear')
+  load()
+  toast('已清空')
+})
+
+document.getElementById('export-csv').addEventListener('click', async () => {
+  const r = await ipcRenderer.invoke('vocab-export-csv')
+  if (r.ok) toast(`✓ 已导出 ${r.count} 词`)
+  else toast(r.msg || '导出失败')
+})
+
+load()
+</script>
+</body>
+</html>

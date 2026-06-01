@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>设置</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+  body { padding: 24px 28px; }
+  h2 { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+  .subtitle { color: var(--text-muted); font-size: 12.5px; margin-bottom: 22px; }
+  .field { margin-bottom: 18px; }
+  label { display: block; font-size: 12.5px; font-weight: 500; margin-bottom: 6px; color: var(--text); }
+  .hint { font-size: 11.5px; color: var(--text-faint); margin-top: 4px; line-height: 1.5; }
+  input[type="text"], input[type="password"] { width: 100%; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .row > input { flex: 1; }
+  .toggle {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .toggle:hover { border-color: var(--accent-soft); }
+  .toggle input { margin: 0; accent-color: var(--accent); }
+  .toggle .title { font-size: 13px; font-weight: 500; }
+  .toggle .desc  { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+  .toggle-body { flex: 1; }
+  .actions { display: flex; gap: 10px; margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--border-soft); }
+  .actions .spacer { flex: 1; }
+  #test-result { font-size: 12px; margin-top: 6px; }
+  .ok    { color: #2D8659; }
+  .err   { color: var(--danger); }
+  hr { border: none; border-top: 1px solid var(--border-soft); margin: 22px 0; }
+</style>
+</head>
+<body>
+<h2>设置</h2>
+<div class="subtitle">配置 API、热键、功能开关</div>
+
+<div class="field">
+  <label>DeepSeek API Key</label>
+  <div class="row">
+    <input type="password" id="api-key" placeholder="sk-...">
+    <button class="btn-ghost btn" id="toggle-key">显示</button>
+    <button class="btn-ghost btn" id="test-key">测试连接</button>
+  </div>
+  <div class="hint">在 platform.deepseek.com 注册获取。本地保存在 config.json，不会上传。</div>
+  <div id="test-result"></div>
+</div>
+
+<div class="field">
+  <label>模型</label>
+  <select id="model" style="width: 100%;">
+    <option value="deepseek-chat">deepseek-chat（推荐 · 性价比）</option>
+    <option value="deepseek-reasoner">deepseek-reasoner（深度推理 · 慢）</option>
+  </select>
+</div>
+
+<hr>
+
+<div class="field">
+  <label>OCR 识别引擎</label>
+  <select id="ocr-engine" style="width: 100%;">
+    <option value="tesseract">Tesseract.js（本地，免费，普通文本好）</option>
+    <option value="umi">Umi-OCR（本地服务，准确度高，需先启动 Umi-OCR）</option>
+    <option value="windows">Windows 系统 OCR（最快，准确度一般）</option>
+  </select>
+  <div class="hint">
+    动画字幕 / 复杂字体推荐 Umi-OCR。下载：
+    <a href="#" id="umi-link" style="color: var(--accent);">github.com/hiroi-sora/Umi-OCR</a><br>
+    安装后打开 Umi → 设置 → 全局设置 → 启用 HTTP 服务（默认端口 1224）
+  </div>
+</div>
+
+<div class="field" id="umi-endpoint-field">
+  <label>Umi-OCR 服务地址</label>
+  <div class="row">
+    <input type="text" id="umi-endpoint" placeholder="http://127.0.0.1:1224">
+    <button class="btn-ghost btn" id="test-umi">测试连接</button>
+  </div>
+  <div id="umi-test-result" style="font-size: 12px; margin-top: 6px;"></div>
+</div>
+
+<hr>
+
+<div class="field">
+  <label>截图翻译热键</label>
+  <input type="text" id="hotkey-capture" placeholder="例：Alt+Shift+T">
+  <div class="hint">支持组合键：Alt / Ctrl / Shift / Super + 字母 / 数字</div>
+</div>
+
+<div class="field">
+  <label class="toggle">
+    <input type="checkbox" id="enable-clipboard-mode">
+    <div class="toggle-body">
+      <div class="title">启用剪贴板翻译模式</div>
+      <div class="desc">复制文字后按热键，弹出翻译窗口，无需截图</div>
+    </div>
+  </label>
+</div>
+
+<div class="field" id="clipboard-hotkey-field">
+  <label>剪贴板翻译热键</label>
+  <input type="text" id="hotkey-clipboard" placeholder="例：Alt+Shift+D">
+</div>
+
+<hr>
+
+<div class="field">
+  <label class="toggle">
+    <input type="checkbox" id="auto-translate">
+    <div class="toggle-body">
+      <div class="title">自动翻译</div>
+      <div class="desc">OCR 完成后自动调用 API 翻译全文</div>
+    </div>
+  </label>
+</div>
+
+<div class="actions">
+  <div class="spacer"></div>
+  <button class="btn-ghost btn" id="cancel">取消</button>
+  <button class="btn" id="save">保存</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const { ipcRenderer } = require('electron')
+
+let initial = null
+async function load() {
+  initial = await ipcRenderer.invoke('settings-get')
+  document.getElementById('api-key').value = initial.deepseek_api_key || ''
+  document.getElementById('model').value = initial.model || 'deepseek-chat'
+  document.getElementById('hotkey-capture').value = initial.hotkey_capture || 'Alt+Shift+T'
+  document.getElementById('hotkey-clipboard').value = initial.hotkey_clipboard || 'Alt+Shift+D'
+  document.getElementById('enable-clipboard-mode').checked = !!initial.enable_clipboard_mode
+  document.getElementById('auto-translate').checked = !!initial.auto_translate
+  document.getElementById('ocr-engine').value = initial.ocr_engine || 'tesseract'
+  document.getElementById('umi-endpoint').value = initial.umi_endpoint || 'http://127.0.0.1:1224'
+  updateClipboardFieldVisibility()
+  updateUmiFieldVisibility()
+}
+
+function updateUmiFieldVisibility() {
+  document.getElementById('umi-endpoint-field').style.display =
+    document.getElementById('ocr-engine').value === 'umi' ? '' : 'none'
+}
+document.getElementById('ocr-engine').addEventListener('change', updateUmiFieldVisibility)
+
+document.getElementById('test-umi').addEventListener('click', async () => {
+  const r = document.getElementById('umi-test-result')
+  r.textContent = '测试中…'; r.className = ''
+  await ipcRenderer.invoke('settings-set', {
+    umi_endpoint: document.getElementById('umi-endpoint').value
+  })
+  const res = await ipcRenderer.invoke('test-umi')
+  r.textContent = res.ok ? '✓ ' + res.msg : '✗ ' + res.msg
+  r.className = res.ok ? 'ok' : 'err'
+})
+
+document.getElementById('umi-link').addEventListener('click', (e) => {
+  e.preventDefault()
+  require('electron').shell.openExternal('https://github.com/hiroi-sora/Umi-OCR')
+})
+load()
+
+function updateClipboardFieldVisibility() {
+  document.getElementById('clipboard-hotkey-field').style.display =
+    document.getElementById('enable-clipboard-mode').checked ? '' : 'none'
+}
+document.getElementById('enable-clipboard-mode').addEventListener('change', updateClipboardFieldVisibility)
+
+document.getElementById('toggle-key').addEventListener('click', () => {
+  const inp = document.getElementById('api-key')
+  const btn = document.getElementById('toggle-key')
+  if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '隐藏' }
+  else { inp.type = 'password'; btn.textContent = '显示' }
+})
+
+document.getElementById('test-key').addEventListener('click', async () => {
+  const r = document.getElementById('test-result')
+  r.textContent = '测试中…'
+  r.className = ''
+  // Save key first
+  await ipcRenderer.invoke('settings-set', {
+    deepseek_api_key: document.getElementById('api-key').value,
+    model: document.getElementById('model').value
+  })
+  const res = await ipcRenderer.invoke('test-api')
+  r.textContent = res.ok ? '✓ 连接成功' : '✗ ' + res.msg
+  r.className = res.ok ? 'ok' : 'err'
+})
+
+function toast(msg) {
+  const t = document.getElementById('toast')
+  t.textContent = msg
+  t.classList.add('show')
+  setTimeout(() => t.classList.remove('show'), 1500)
+}
+
+document.getElementById('save').addEventListener('click', async () => {
+  await ipcRenderer.invoke('settings-set', {
+    deepseek_api_key: document.getElementById('api-key').value,
+    model: document.getElementById('model').value,
+    hotkey_capture: document.getElementById('hotkey-capture').value || 'Alt+Shift+T',
+    hotkey_clipboard: document.getElementById('hotkey-clipboard').value || 'Alt+Shift+D',
+    enable_clipboard_mode: document.getElementById('enable-clipboard-mode').checked,
+    auto_translate: document.getElementById('auto-translate').checked,
+    ocr_engine: document.getElementById('ocr-engine').value,
+    umi_endpoint: document.getElementById('umi-endpoint').value || 'http://127.0.0.1:1224'
+  })
+  toast('已保存')
+  setTimeout(() => window.close(), 600)
+})
+
+document.getElementById('cancel').addEventListener('click', () => window.close())
+</script>
+</body>
+</html>

@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>OCR 翻译</title>
+<style>
+  :root {
+    --bg:           #F5F1EB;   /* Claude cream */
+    --bg-elev:      #FAF7F2;
+    --panel:        #EFE9DF;
+    --text:         #2D2B26;
+    --text-muted:   #76726B;
+    --text-faint:   #A29D94;
+    --border:       #E3DCCE;
+    --border-soft:  #ECE5D7;
+    --accent:       #C96442;   /* Claude orange/coral */
+    --accent-soft:  #E8B8A4;
+    --accent-bg:    #F5DDD0;
+    --highlight:    #F4E4C1;   /* warm yellow for selection */
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Söhne', -apple-system, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  #toolbar button {
+    padding: 6px 14px;
+    background: var(--accent);
+    color: #fff;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12.5px;
+    font-family: inherit;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+  #toolbar button:hover {
+    background: #B0553A;
+    border-color: #B0553A;
+  }
+  #toolbar button:active {
+    transform: translateY(1px);
+  }
+
+  #status {
+    font-size: 12px;
+    color: var(--text-muted);
+    padding-left: 8px;
+  }
+  #toolbar #btn-vocab, #toolbar #btn-settings {
+    padding: 4px 9px;
+    font-size: 15px;
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+  }
+  #toolbar #btn-vocab:hover, #toolbar #btn-settings:hover {
+    background: var(--accent-bg);
+    color: var(--accent);
+    border-color: var(--accent-soft);
+  }
+
+  #main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  #ocr-panel {
+    flex: 1;
+    position: relative;
+    overflow: auto;
+    padding: 20px;
+    background: var(--bg);
+  }
+
+  #screenshot-container {
+    position: relative;
+    display: inline-block;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  #screenshot {
+    display: block;
+    max-width: 100%;
+  }
+
+  /* Line-level overlay (visual reference only, not clickable) */
+  .line-box {
+    position: absolute;
+    pointer-events: none;
+    outline: 1px dashed rgba(201, 100, 66, 0.45);
+    background: rgba(201, 100, 66, 0.04);
+    border-radius: 2px;
+  }
+
+  /* Clickable word bar below screenshot */
+  #word-bar {
+    margin-top: 14px;
+    padding: 10px 12px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border-soft);
+    border-radius: 10px;
+    line-height: 2;
+  }
+  #word-bar .wb-line { margin-bottom: 4px; }
+  #word-bar .wb-line:last-child { margin-bottom: 0; }
+  .word-chip {
+    display: inline-block;
+    padding: 2px 9px;
+    margin: 0 2px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.12s;
+    font-size: 14px;
+    color: var(--text);
+  }
+  .word-chip:hover {
+    background: var(--accent-bg);
+    color: var(--accent);
+  }
+  .word-chip.active {
+    background: var(--accent);
+    color: #fff;
+  }
+  .wb-punct {
+    color: var(--text-faint);
+    margin: 0 1px;
+    font-size: 14px;
+  }
+
+  #translation-panel {
+    width: 340px;
+    flex-shrink: 0;
+    background: var(--bg-elev);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #translation-header {
+    padding: 14px 18px 8px;
+    font-size: 11px;
+    color: var(--text-faint);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  #src-edit-wrap { padding: 0 18px; }
+  #src-text {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: inherit;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text);
+    resize: vertical;
+    min-height: 56px;
+    outline: none;
+  }
+  #src-text:focus { border-color: var(--accent-soft); }
+
+  #translation-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 18px 18px;
+  }
+
+  #full-translation {
+    font-size: 14.5px;
+    line-height: 1.75;
+    color: var(--accent);
+    white-space: pre-wrap;
+    font-weight: 500;
+  }
+
+  /* Word detail popup */
+  #word-popup {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    width: 300px;
+    box-shadow: 0 8px 28px rgba(45, 43, 38, 0.12), 0 2px 6px rgba(45, 43, 38, 0.06);
+    font-size: 13.5px;
+  }
+
+  #word-popup .pop-head-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  #word-popup .pop-head-row .pop-word { flex: 1; }
+  #word-popup .pop-icon-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 17px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    color: var(--text-muted);
+    transition: all 0.12s;
+  }
+  #word-popup .pop-icon-btn:hover { background: var(--accent-bg); color: var(--accent); }
+  #word-popup .pop-star.active { color: #E5A823; }
+  #word-popup .pop-tags { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+  #word-popup .pop-freq {
+    display: inline-block;
+    background: var(--panel);
+    color: var(--text-muted);
+    font-size: 11px;
+    padding: 2px 9px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+  #word-popup .pop-root {
+    margin-top: 4px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    line-height: 1.55;
+    background: var(--bg);
+    padding: 6px 9px;
+    border-radius: 6px;
+    border-left: 3px solid var(--accent-soft);
+  }
+  #word-popup .pop-word {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.3px;
+  }
+  #word-popup .pop-phonetic {
+    color: var(--text-muted);
+    font-size: 12.5px;
+    margin-top: 3px;
+    font-family: 'Consolas', monospace;
+  }
+  #word-popup .pop-pos {
+    display: inline-block;
+    background: var(--accent-bg);
+    color: var(--accent);
+    font-size: 11px;
+    padding: 2px 9px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+  .toast {
+    position: fixed; bottom: 24px; left: 50%;
+    transform: translateX(-50%);
+    background: var(--text); color: var(--bg-elev);
+    padding: 8px 16px; border-radius: 8px;
+    font-size: 13px; z-index: 9999;
+    opacity: 0; transition: opacity 0.2s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 0.95; }
+  #word-popup .pop-meaning-cn {
+    margin-top: 12px;
+    font-size: 16px;
+    color: var(--text);
+    font-weight: 500;
+    line-height: 1.5;
+  }
+  #word-popup .pop-meaning-en {
+    margin-top: 6px;
+    color: var(--text-muted);
+    font-size: 12.5px;
+    line-height: 1.55;
+    font-style: italic;
+  }
+  #word-popup .pop-section-title {
+    margin-top: 14px;
+    font-size: 10.5px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+  }
+  #word-popup .pop-examples {
+    margin-top: 6px;
+    color: var(--text);
+    font-size: 12.5px;
+    line-height: 1.7;
+  }
+  #word-popup .pop-examples em {
+    color: var(--accent);
+    font-style: normal;
+    font-weight: 600;
+  }
+  #word-popup .pop-synonyms {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  #word-popup .pop-syn-tag {
+    background: var(--panel);
+    color: var(--text);
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11.5px;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  #word-popup .pop-syn-tag:hover {
+    background: var(--accent);
+    color: #fff;
+  }
+  #word-popup .pop-note {
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border-soft);
+    padding-top: 10px;
+    line-height: 1.55;
+  }
+  #word-popup .pop-close {
+    position: absolute;
+    top: 12px; right: 14px;
+    cursor: pointer;
+    color: var(--text-faint);
+    font-size: 18px;
+    line-height: 1;
+    transition: color 0.12s;
+  }
+  #word-popup .pop-close:hover { color: var(--text); }
+  #word-popup .pop-loading {
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: center;
+    padding: 18px 0;
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 13px; height: 13px;
+    border: 2px solid var(--accent);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 7px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <button id="btn-translate">重新翻译</button>
+  <button id="btn-copy-text">复制原文</button>
+  <button id="btn-copy-trans">复制译文</button>
+  <span id="status">准备中…</span>
+  <span style="flex:1"></span>
+  <button id="btn-vocab" title="生词本">📖</button>
+  <button id="btn-settings" title="设置">⚙</button>
+</div>
+
+<div id="main">
+  <div id="ocr-panel">
+    <div id="screenshot-container">
+      <img id="screenshot" />
+      <div id="lines-layer"></div>
+    </div>
+    <div id="word-bar"></div>
+  </div>
+
+  <div id="translation-panel">
+    <div id="translation-header">原文（可编辑）</div>
+    <div id="src-edit-wrap">
+      <textarea id="src-text" rows="3" placeholder="OCR 识别错了？在这里手动修改后点「重新翻译」"></textarea>
+    </div>
+    <div id="translation-header" style="margin-top: 4px;">翻译结果</div>
+    <div id="translation-content">
+      <div id="full-translation">等待识别…</div>
+    </div>
+  </div>
+</div>
+
+<!-- Word detail popup -->
+<div id="word-popup">
+  <span class="pop-close" id="pop-close">×</span>
+  <div id="pop-content"></div>
+</div>
+
+<script>
+const { ipcRenderer } = require('electron')
+
+let ocrData = null
+let scaleFactor = 1
+let activeToken = null
+
+function rerenderTokens() {
+  const img = document.getElementById('screenshot')
+  if (!ocrData || !img.complete || img.naturalWidth === 0) return
+  renderLines(ocrData.lines || [], img.clientWidth, img.clientHeight, img.naturalWidth, img.naturalHeight)
+}
+
+let resizeObs = null
+ipcRenderer.on('init', (event, { dataUrl, ocrResult, region }) => {
+  ocrData = ocrResult
+  const img = document.getElementById('screenshot')
+  img.src = dataUrl
+
+  img.onload = () => {
+    rerenderTokens()
+    if (!resizeObs) {
+      resizeObs = new ResizeObserver(() => rerenderTokens())
+      resizeObs.observe(img)
+    }
+  }
+
+  renderWordBar(ocrResult.lines || [])
+
+  // populate editable src text
+  document.getElementById('src-text').value = ocrResult.fullText || ''
+
+  // Auto-translate on load (respect settings)
+  ipcRenderer.invoke('settings-get').then(s => {
+    if (ocrResult.fullText && ocrResult.fullText.trim().length > 0) {
+      if (s.auto_translate) autoTranslate(ocrResult.fullText)
+      else {
+        document.getElementById('full-translation').textContent = '点击「重新翻译」开始翻译'
+        document.getElementById('full-translation').style.color = 'var(--text-muted)'
+        document.getElementById('status').textContent = '识别完成 · 点击词块查看词义'
+      }
+    } else {
+      document.getElementById('full-translation').textContent = '未识别到文字'
+      document.getElementById('full-translation').style.color = 'var(--text-muted)'
+    }
+  })
+})
+
+async function autoTranslate(text) {
+  const status = document.getElementById('status')
+  const output = document.getElementById('full-translation')
+  status.textContent = '自动翻译中…'
+  output.innerHTML = '<span class="spinner"></span> 正在翻译…'
+  output.style.color = ''   // clear inline color so CSS applies
+  try {
+    const result = await ipcRenderer.invoke('translate-all', text)
+    output.textContent = result
+    output.style.color = ''
+    status.textContent = '翻译完成 · 点击词块查看详细词义'
+  } catch (e) {
+    output.textContent = '翻译失败：' + e.message
+    output.style.color = '#c0392b'
+    status.textContent = '翻译出错'
+  }
+}
+
+function renderLines(lines, dispW, dispH, natW, natH) {
+  const layer = document.getElementById('lines-layer')
+  layer.innerHTML = ''
+  layer.style.position = 'absolute'
+  layer.style.top = '0'; layer.style.left = '0'
+  layer.style.width = dispW + 'px'
+  layer.style.height = dispH + 'px'
+
+  const scaleX = dispW / natW
+  const scaleY = dispH / natH
+
+  lines.forEach(ln => {
+    const div = document.createElement('div')
+    div.className = 'line-box'
+    div.style.left   = (ln.x * scaleX) + 'px'
+    div.style.top    = (ln.y * scaleY) + 'px'
+    div.style.width  = (ln.w * scaleX) + 'px'
+    div.style.height = (ln.h * scaleY) + 'px'
+    layer.appendChild(div)
+  })
+}
+
+function renderWordBar(lines) {
+  const bar = document.getElementById('word-bar')
+  bar.innerHTML = ''
+  if (!lines.length) { bar.style.display = 'none'; return }
+  bar.style.display = ''
+
+  lines.forEach(ln => {
+    const lineDiv = document.createElement('div')
+    lineDiv.className = 'wb-line'
+    // Tokenize: keep words and punctuation separate
+    const parts = ln.text.match(/[A-Za-z'\-]+|[^A-Za-z\s]+|\s+/g) || []
+    for (const p of parts) {
+      if (/^\s+$/.test(p)) {
+        lineDiv.appendChild(document.createTextNode(' '))
+      } else if (/^[A-Za-z'\-]+$/.test(p)) {
+        const chip = document.createElement('span')
+        chip.className = 'word-chip'
+        chip.textContent = p
+        chip.dataset.word = p
+        chip.addEventListener('click', e => {
+          e.stopPropagation()
+          showWordPopup(chip, p)
+        })
+        lineDiv.appendChild(chip)
+      } else {
+        const punct = document.createElement('span')
+        punct.className = 'wb-punct'
+        punct.textContent = p
+        lineDiv.appendChild(punct)
+      }
+    }
+    bar.appendChild(lineDiv)
+  })
+}
+
+async function showWordPopup(tokenEl, word) {
+  if (activeToken) activeToken.classList.remove('active')
+  activeToken = tokenEl
+  if (tokenEl && tokenEl.classList) tokenEl.classList.add('active')
+
+  const popup = document.getElementById('word-popup')
+  const content = document.getElementById('pop-content')
+
+  content.innerHTML = `<div class="pop-loading"><span class="spinner"></span>查询中…</div>`
+  positionPopup(popup, tokenEl)
+  popup.style.display = 'block'
+
+  const context = ocrData ? ocrData.fullText : word
+  const data = await ipcRenderer.invoke('get-word-meaning', word, context)
+  renderPopup(content, data)
+}
+
+function renderPopup(container, d) {
+  let html = `<div class="pop-head-row">
+    <span class="pop-word">${d.word || ''}</span>
+    <button class="pop-icon-btn" data-act="speak" title="朗读">🔊</button>
+    <button class="pop-icon-btn pop-star" data-act="star" title="加入生词本">☆</button>
+  </div>`
+  if (d.phonetic) html += `<div class="pop-phonetic">${d.phonetic}</div>`
+  const tags = []
+  if (d.pos)       tags.push(`<span class="pop-pos">${d.pos}</span>`)
+  if (d.frequency) tags.push(`<span class="pop-freq">${d.frequency}</span>`)
+  if (tags.length) html += `<div class="pop-tags">${tags.join('')}</div>`
+
+  if (d.meaning_cn) html += `<div class="pop-meaning-cn">${d.meaning_cn}</div>`
+  if (d.meaning_en) html += `<div class="pop-meaning-en">${d.meaning_en}</div>`
+
+  if (d.root) {
+    html += `<div class="pop-section-title">词根词缀</div>
+             <div class="pop-root">${d.root}</div>`
+  }
+
+  if (d.examples && d.examples.length) {
+    html += `<div class="pop-section-title">例句</div><div class="pop-examples">`
+    d.examples.forEach(ex => {
+      const highlighted = (ex || '').replace(new RegExp(d.word, 'gi'), m => `<em>${m}</em>`)
+      html += `• ${highlighted}<br>`
+    })
+    html += `</div>`
+  }
+
+  if (d.synonyms && d.synonyms.length) {
+    html += `<div class="pop-section-title">近义词</div><div class="pop-synonyms">`
+    d.synonyms.forEach(s => { html += `<span class="pop-syn-tag">${s}</span>` })
+    html += `</div>`
+  }
+
+  if (d.note) html += `<div class="pop-note">💡 ${d.note}</div>`
+
+  container.innerHTML = html
+
+  // wire icon buttons
+  container.querySelector('[data-act="speak"]')?.addEventListener('click', () => speakWord(d.word))
+  container.querySelector('[data-act="star"]')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget
+    const ctx = ocrData ? ocrData.fullText : ''
+    const r = await ipcRenderer.invoke('vocab-add', { ...d, context: ctx })
+    btn.textContent = '★'
+    btn.classList.add('active')
+    showToast(r.duplicate ? '已更新到生词本' : '✓ 已加入生词本')
+  })
+}
+
+function speakWord(word) {
+  if (!word) return
+  const u = new SpeechSynthesisUtterance(word)
+  u.lang = 'en-US'; u.rate = 0.9
+  speechSynthesis.cancel()
+  speechSynthesis.speak(u)
+}
+
+function showToast(msg) {
+  let t = document.getElementById('toast')
+  if (!t) {
+    t = document.createElement('div')
+    t.id = 'toast'
+    t.className = 'toast'
+    document.body.appendChild(t)
+  }
+  t.textContent = msg
+  t.classList.add('show')
+  setTimeout(() => t.classList.remove('show'), 1400)
+}
+
+function positionPopup(popup, tokenEl) {
+  const rect = tokenEl.getBoundingClientRect()
+  const pw = 260, ph = 320
+  let left = rect.right + 10
+  let top  = rect.top
+
+  if (left + pw > window.innerWidth)  left = rect.left - pw - 10
+  if (top  + ph > window.innerHeight) top  = window.innerHeight - ph - 10
+  if (top < 0) top = 10
+
+  popup.style.left = left + 'px'
+  popup.style.top  = top  + 'px'
+}
+
+document.getElementById('pop-close').addEventListener('click', () => {
+  document.getElementById('word-popup').style.display = 'none'
+  if (activeToken) { activeToken.classList.remove('active'); activeToken = null }
+})
+
+document.addEventListener('click', (e) => {
+  const popup = document.getElementById('word-popup')
+  if (!popup.contains(e.target) && !e.target.classList.contains('word-chip')) {
+    popup.style.display = 'none'
+    if (activeToken) { activeToken.classList.remove('active'); activeToken = null }
+  }
+})
+
+document.getElementById('btn-translate').addEventListener('click', () => {
+  const edited = document.getElementById('src-text').value.trim()
+  if (edited) autoTranslate(edited)
+})
+
+document.getElementById('btn-copy-text').addEventListener('click', () => {
+  const t = document.getElementById('src-text').value
+  navigator.clipboard.writeText(t)
+  document.getElementById('status').textContent = '原文已复制'
+})
+
+document.getElementById('btn-copy-trans').addEventListener('click', () => {
+  const t = document.getElementById('full-translation').textContent
+  if (t) navigator.clipboard.writeText(t)
+  document.getElementById('status').textContent = '译文已复制'
+})
+
+document.getElementById('btn-vocab').addEventListener('click', () => ipcRenderer.send('open-vocab'))
+document.getElementById('btn-settings').addEventListener('click', () => ipcRenderer.send('open-settings'))
+</script>
+</body>
+</html>

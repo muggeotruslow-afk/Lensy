@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>剪贴板翻译</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+  body { padding: 16px 18px; height: 100vh; display: flex; flex-direction: column; }
+  h3 { font-size: 12px; color: var(--text-faint); font-weight: 600;
+       text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+  .box {
+    background: var(--bg-elev);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    padding: 10px 13px;
+    font-size: 13.5px;
+    line-height: 1.65;
+    overflow-y: auto;
+  }
+  #src { max-height: 100px; flex-shrink: 0; }
+  #tgt { flex: 1; margin-top: 12px; color: var(--accent); font-weight: 500; }
+  .actions { display: flex; gap: 8px; margin-top: 10px; }
+  .spacer { flex: 1; }
+</style>
+</head>
+<body>
+<h3>原文</h3>
+<div class="box" id="src">—</div>
+<h3 style="margin-top: 12px;">译文</h3>
+<div class="box" id="tgt"><span class="spinner"></span>翻译中…</div>
+<div class="actions">
+  <button class="btn-ghost btn" id="copy">复制译文</button>
+  <div class="spacer"></div>
+  <button class="btn" id="close">关闭</button>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const { ipcRenderer } = require('electron')
+
+function toast(msg) {
+  const t = document.getElementById('toast')
+  t.textContent = msg; t.classList.add('show')
+  setTimeout(() => t.classList.remove('show'), 1200)
+}
+
+ipcRenderer.on('quick-text', async (event, text) => {
+  document.getElementById('src').textContent = text
+  const tgt = document.getElementById('tgt')
+  tgt.innerHTML = '<span class="spinner"></span>翻译中…'
+  try {
+    const result = await ipcRenderer.invoke('translate-all', text)
+    tgt.textContent = result
+  } catch (e) {
+    tgt.textContent = '翻译失败：' + e.message
+    tgt.style.color = 'var(--danger)'
+  }
+})
+
+document.getElementById('copy').addEventListener('click', () => {
+  navigator.clipboard.writeText(document.getElementById('tgt').textContent)
+  toast('已复制')
+})
+document.getElementById('close').addEventListener('click', () => window.close())
+document.addEventListener('keydown', e => { if (e.key === 'Escape') window.close() })
+</script>
+</body>
+</html>
