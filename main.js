@@ -253,18 +253,21 @@ async function runUmiOCR(imagePath) {
 async function runTesseract(imagePath) {
   const worker = await initTesseract()
 
-  // Heuristic: if image is wide & short (subtitle-like), use single-line PSM
+  // PSM SINGLE_BLOCK (6) preserves spaces better than SINGLE_LINE (7)
   let psm = PSM.AUTO
   try {
     const img = await Jimp.read(imagePath)
     const { width, height } = img.bitmap
     const ratio = width / height
-    if (ratio > 6) psm = PSM.SINGLE_LINE
-    else if (ratio > 2) psm = PSM.SINGLE_BLOCK
+    // Always prefer SINGLE_BLOCK for wide images — keeps interword spaces
+    if (ratio > 2) psm = PSM.SINGLE_BLOCK
     log('image dims:', width, 'x', height, 'ratio:', ratio.toFixed(2), 'PSM:', psm)
   } catch {}
 
-  await worker.setParameters({ tessedit_pageseg_mode: psm })
+  await worker.setParameters({
+    tessedit_pageseg_mode: psm,
+    preserve_interword_spaces: '1'
+  })
 
   // Run on original + preprocessed variants, pick best by avg confidence
   const variants = [imagePath, ...await preprocessForOCR(imagePath)]
