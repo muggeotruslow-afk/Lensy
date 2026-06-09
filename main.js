@@ -434,6 +434,9 @@ app.whenReady().then(async () => {
 
   // pre-warm Tesseract in background so first OCR is fast
   initTesseract().catch(e => log('Tesseract pre-warm failed:', e.message))
+
+  // Pre-create overlay window so first hotkey is instant
+  setTimeout(() => precreateOverlay().catch(()=>{}), 500)
 })
 
 app.on('will-quit', () => {
@@ -446,17 +449,65 @@ app.on('window-all-closed', (e) => {
   log('window-all-closed - keeping app alive')
 })
 
+// Pre-warmed overlay window — hidden, HTML loaded, ready to flash on hotkey
+let prewarmOverlay = null
+let prewarmReady = false
+
+async function precreateOverlay() {
+  if (prewarmOverlay && !prewarmOverlay.isDestroyed()) return
+  try {
+    const display = screen.getPrimaryDisplay()
+    const { width, height } = display.bounds
+    const win = new BrowserWindow({
+      width, height,
+      x: 0, y: 0,
+      frame: false,
+      transparent: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: false,
+      movable: false,
+      hasShadow: false,
+      show: false,
+      backgroundColor: '#000',
+      webPreferences: { nodeIntegration: true, contextIsolation: false }
+    })
+    win.loadFile('overlay.html')
+    await new Promise(r => win.webContents.once('did-finish-load', r))
+    win.on('closed', () => {
+      if (prewarmOverlay === win) {
+        prewarmOverlay = null
+        prewarmReady = false
+      }
+    })
+    prewarmOverlay = win
+    prewarmReady = true
+    log('overlay pre-warmed')
+  } catch (e) { log('precreateOverlay error:', e.message) }
+}
+
 async function openOverlay() {
   log('openOverlay called. existing overlay?', !!overlayWin, 'result win?', !!resultWin)
   if (overlayWin) { overlayWin.close(); overlayWin = null; return }
 
   try {
+    // Use pre-warmed overlay if available — saves ~150-200ms
+    if (!prewarmReady) await precreateOverlay()
+    overlayWin = prewarmOverlay
+    prewarmOverlay = null
+    prewarmReady = false
+
     const display = screen.getPrimaryDisplay()
     const { width, height } = display.bounds
     frozenScale = display.scaleFactor
 
-    log('capturing screen for freeze:', { width, height, scale: frozenScale })
+    // INSTANT FEEDBACK: show dim overlay immediately, before capture
+    overlayWin.setFullScreen(true)
+    overlayWin.show()
+    overlayWin.focus()
 
+    // Capture screen in parallel — user already sees dimmed screen
+    log('capturing screen for freeze:', { width, height, scale: frozenScale })
     const sources = await desktopCapturer.getSources({
       types: ['screen'],
       thumbnailSize: {
@@ -468,31 +519,19 @@ async function openOverlay() {
     const fsSize = frozenScreenshot.getSize()
     log('frozen screenshot size:', fsSize)
 
-    overlayWin = new BrowserWindow({
-      width, height,
-      x: 0, y: 0,
-      frame: false,
-      transparent: false,
-      alwaysOnTop: true,
-      skipTaskbar: true,
-      resizable: false,
-      movable: false,
-      hasShadow: false,
-      show: false,            // don't show until image is rendered
-      backgroundColor: '#000',
-      webPreferences: { nodeIntegration: true, contextIsolation: false }
-    })
-
-    overlayWin.loadFile('overlay.html')
-    overlayWin.setFullScreen(true)
-    overlayWin.webContents.once('did-finish-load', () => {
+    if (overlayWin && !overlayWin.isDestroyed()) {
       overlayWin.webContents.send('frozen-image', {
         dataUrl: frozenScreenshot.toDataURL(),
         naturalWidth: fsSize.width,
         naturalHeight: fsSize.height
       })
+    }
+    overlayWin.on('closed', () => {
+      overlayWin = null
+      log('overlay closed event')
+      // Pre-warm the next one in background
+      setTimeout(() => precreateOverlay().catch(()=>{}), 200)
     })
-    overlayWin.on('closed', () => { overlayWin = null; log('overlay closed event') })
   } catch (err) {
     log('openOverlay error:', err.message)
   }
