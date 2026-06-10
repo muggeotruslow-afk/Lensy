@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    background: transparent;
+    overflow: hidden;
+    font-family: 'Söhne', -apple-system, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .toast {
+    margin: 6px;
+    padding: 14px 18px;
+    background: #FAF7F2;
+    color: #2D2B26;
+    border: 1px solid #E3DCCE;
+    border-left: 4px solid #C96442;
+    border-radius: 10px;
+    box-shadow: 0 8px 28px rgba(45, 43, 38, 0.18), 0 2px 6px rgba(45, 43, 38, 0.08);
+    font-size: 13px;
+    line-height: 1.55;
+    opacity: 0;
+    transform: translateY(10px);
+    animation: in 0.18s ease-out forwards, out 0.25s ease-in 1.5s forwards;
+  }
+  .toast .title { font-weight: 600; color: #C96442; margin-bottom: 4px; font-size: 13.5px; }
+  .toast .body  { color: #54524C; font-size: 12.5px; white-space: pre-wrap; }
+  @keyframes in  { to { opacity: 1; transform: translateY(0); } }
+  @keyframes out { to { opacity: 0; transform: translateY(-6px); } }
+</style></head>
+<body>
+<div class="toast">
+  <div class="title" id="t-title">Lensy</div>
+  <div class="body" id="t-body">…</div>
+</div>
+<script>
+const { ipcRenderer } = require('electron')
+ipcRenderer.on('toast-data', (event, { title, body }) => {
+  document.getElementById('t-title').textContent = title || 'Lensy'
+  document.getElementById('t-body').textContent  = body  || ''
+})
+</script>
+</body></html>

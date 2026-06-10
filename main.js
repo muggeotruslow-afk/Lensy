@@ -342,6 +342,39 @@ app.disableHardwareAcceleration()
 
 const APP_ICON = path.join(__dirname, 'assets', 'icon.png')
 
+// In-app toast (right-bottom floating card, ~1.5s auto-dismiss)
+let toastWin = null
+function showToast(title, body) {
+  try {
+    if (toastWin && !toastWin.isDestroyed()) { try { toastWin.close() } catch {} toastWin = null }
+    const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize
+    const w = 360, h = 90
+    toastWin = new BrowserWindow({
+      width: w, height: h,
+      x: sw - w - 16, y: sh - h - 16,
+      frame: false,
+      transparent: true,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: false,
+      movable: false,
+      focusable: false,
+      hasShadow: false,
+      show: false,
+      webPreferences: { nodeIntegration: true, contextIsolation: false }
+    })
+    toastWin.setIgnoreMouseEvents(true)
+    toastWin.loadFile('toast.html')
+    toastWin.webContents.once('did-finish-load', () => {
+      toastWin.webContents.send('toast-data', { title, body })
+      toastWin.showInactive()
+    })
+    setTimeout(() => {
+      if (toastWin && !toastWin.isDestroyed()) { try { toastWin.close() } catch {}; toastWin = null }
+    }, 2200)
+  } catch (e) { log('showToast error:', e.message) }
+}
+
 // Prevent multiple instances
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -645,17 +678,15 @@ ipcMain.on('capture-region', async (event, region) => {
       overlayWin = null
     }
 
-    // Short-circuit when OCR returned nothing — notify user instead of opening empty window
-    const wordCount = (ocrResult.words?.length || 0) + (ocrResult.lines?.length || 0)
-    if (wordCount === 0 && !ocrResult.fullText?.trim()) {
-      log('OCR 0 words — showing balloon instead of empty result window')
-      if (tray) {
-        try { tray.displayBalloon({
-          title: 'Lensy — 未识别到文字',
-          content: '框选区域里没识别到文字。建议：\n1) 框选要包含完整文字行（上下各留 5-10px 空白）\n2) 框选区域宽高不要太小（<200×30 通常无效）\n3) 文字模糊或背景复杂时切换 OCR 引擎'
-        }) } catch {}
-      }
-      return  // don't open result window
+    // Short-circuit when OCR returned nothing — show in-app toast instead of empty window
+    const w_n = ocrResult.words?.length || 0
+    const l_n = ocrResult.lines?.length || 0
+    const txt = (ocrResult.fullText || '').trim()
+    log('OCR short-circuit check: words=' + w_n + ' lines=' + l_n + ' textLen=' + txt.length + ' textPreview="' + txt.substring(0, 50) + '"')
+    if (w_n === 0 && l_n === 0 && txt.length === 0) {
+      log('→ OCR 0 results, showing toast')
+      showToast('未识别到文字', '框选区域里没识别到文字。建议框选完整文字行（上下留余地，宽度 ≥ 200px）')
+      return
     }
 
     log('opening result window')
@@ -751,13 +782,20 @@ function openResultWindow(dataUrl, ocrResult, region) {
   const winW = Math.min(Math.max(dispW + 380, 900), 1400)
   const winH = Math.min(Math.max(dispH + 260, 560), 950)
 
+  // Place window near top-center so it's never off-screen / behind anything
+  const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize
+  const x = Math.max(0, Math.round((sw - winW) / 2))
+  const y = Math.max(20, Math.round(sh * 0.15))
+
   const myWin = new BrowserWindow({
     width: winW,
     height: winH,
+    x, y,
     frame: true,
     alwaysOnTop: true,
     title: 'Lensy',
     icon: APP_ICON,
+    show: false,
     webPreferences: { nodeIntegration: true, contextIsolation: false }
   })
   resultWin = myWin
@@ -766,6 +804,29 @@ function openResultWindow(dataUrl, ocrResult, region) {
   myWin.on('closed', () => {
     log('result window closed event')
     if (resultWin === myWin) resultWin = null
+  })
+
+  // Force window to the very top and grab focus when ready
+  myWin.once('ready-to-show', () => {
+    log('result window ready-to-show')
+    const bringToFront = () => {
+      if (myWin.isDestroyed()) return
+      try {
+        if (myWin.isMinimized()) myWin.restore()
+        myWin.show()
+        myWin.setAlwaysOnTop(true, 'screen-saver')
+        myWin.moveTop()
+        myWin.focus()
+      } catch (e) { log('bringToFront error:', e.message) }
+    }
+    bringToFront()
+    // Re-attempt after 100ms in case fullscreen video player intercepted first show
+    setTimeout(bringToFront, 100)
+    // Flash taskbar icon so user sees it even if fullscreen video covers the window
+    try { myWin.flashFrame(true) } catch {}
+    setTimeout(() => { try { myWin.flashFrame(false) } catch {} }, 3000)
+    // Drop alwaysOnTop after a moment so user can alt-tab away normally
+    setTimeout(() => { try { myWin.setAlwaysOnTop(false) } catch {} }, 1200)
   })
 
   myWin.webContents.once('did-finish-load', () => {
