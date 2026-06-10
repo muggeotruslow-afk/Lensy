@@ -596,6 +596,8 @@ ipcMain.on('cancel-overlay', () => {
 ipcMain.on('overlay-ready', () => {
   if (overlayWin && !overlayWin.isDestroyed()) {
     overlayWin.show()
+    overlayWin.setAlwaysOnTop(true, 'screen-saver')
+    overlayWin.moveTop()
     overlayWin.focus()
   }
 })
