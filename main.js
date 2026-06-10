@@ -820,13 +820,12 @@ function openResultWindow(dataUrl, ocrResult, region) {
       } catch (e) { log('bringToFront error:', e.message) }
     }
     bringToFront()
-    // Re-attempt after 100ms in case fullscreen video player intercepted first show
-    setTimeout(bringToFront, 100)
-    // Flash taskbar icon so user sees it even if fullscreen video covers the window
+    setTimeout(bringToFront, 100)   // re-attempt against fullscreen video
+    setTimeout(bringToFront, 500)
     try { myWin.flashFrame(true) } catch {}
     setTimeout(() => { try { myWin.flashFrame(false) } catch {} }, 3000)
-    // Drop alwaysOnTop after a moment so user can alt-tab away normally
-    setTimeout(() => { try { myWin.setAlwaysOnTop(false) } catch {} }, 1200)
+    // Keep alwaysOnTop until user closes window — otherwise fullscreen video covers it.
+    // User can move/close window to dismiss.
   })
 
   myWin.webContents.once('did-finish-load', () => {
