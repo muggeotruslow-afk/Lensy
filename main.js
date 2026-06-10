@@ -645,6 +645,19 @@ ipcMain.on('capture-region', async (event, region) => {
       overlayWin = null
     }
 
+    // Short-circuit when OCR returned nothing — notify user instead of opening empty window
+    const wordCount = (ocrResult.words?.length || 0) + (ocrResult.lines?.length || 0)
+    if (wordCount === 0 && !ocrResult.fullText?.trim()) {
+      log('OCR 0 words — showing balloon instead of empty result window')
+      if (tray) {
+        try { tray.displayBalloon({
+          title: 'Lensy — 未识别到文字',
+          content: '框选区域里没识别到文字。建议：\n1) 框选要包含完整文字行（上下各留 5-10px 空白）\n2) 框选区域宽高不要太小（<200×30 通常无效）\n3) 文字模糊或背景复杂时切换 OCR 引擎'
+        }) } catch {}
+      }
+      return  // don't open result window
+    }
+
     log('opening result window')
     openResultWindow(croppedDataUrl, ocrResult, region)
     log('result window opened')
