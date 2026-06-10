@@ -342,6 +342,27 @@ app.disableHardwareAcceleration()
 
 const APP_ICON = path.join(__dirname, 'assets', 'icon.png')
 
+// Force a window to the very top, even against fullscreen apps (B站/OBS/games).
+// Re-attempts a few times to beat z-order racing. Keeps alwaysOnTop until window closes.
+function forceShowOnTop(win) {
+  if (!win || win.isDestroyed()) return
+  const bring = () => {
+    if (win.isDestroyed()) return
+    try {
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.setAlwaysOnTop(true, 'screen-saver')
+      win.moveTop()
+      win.focus()
+    } catch (e) { log('forceShowOnTop error:', e.message) }
+  }
+  bring()
+  setTimeout(bring, 100)
+  setTimeout(bring, 500)
+  try { win.flashFrame(true) } catch {}
+  setTimeout(() => { try { win.flashFrame(false) } catch {} }, 3000)
+}
+
 // In-app toast (right-bottom floating card, ~1.5s auto-dismiss)
 let toastWin = null
 function showToast(title, body) {
@@ -809,23 +830,7 @@ function openResultWindow(dataUrl, ocrResult, region) {
   // Force window to the very top and grab focus when ready
   myWin.once('ready-to-show', () => {
     log('result window ready-to-show')
-    const bringToFront = () => {
-      if (myWin.isDestroyed()) return
-      try {
-        if (myWin.isMinimized()) myWin.restore()
-        myWin.show()
-        myWin.setAlwaysOnTop(true, 'screen-saver')
-        myWin.moveTop()
-        myWin.focus()
-      } catch (e) { log('bringToFront error:', e.message) }
-    }
-    bringToFront()
-    setTimeout(bringToFront, 100)   // re-attempt against fullscreen video
-    setTimeout(bringToFront, 500)
-    try { myWin.flashFrame(true) } catch {}
-    setTimeout(() => { try { myWin.flashFrame(false) } catch {} }, 3000)
-    // Keep alwaysOnTop until user closes window — otherwise fullscreen video covers it.
-    // User can move/close window to dismiss.
+    forceShowOnTop(myWin)
   })
 
   myWin.webContents.once('did-finish-load', () => {
@@ -993,7 +998,7 @@ async function openQuickTranslate() {
   }
 
   if (quickWin && !quickWin.isDestroyed()) {
-    quickWin.focus()
+    forceShowOnTop(quickWin)
     quickWin.webContents.send('quick-text', text)
     return
   }
@@ -1003,10 +1008,12 @@ async function openQuickTranslate() {
     title: 'Lensy — 剪贴板翻译',
     alwaysOnTop: true,
     icon: APP_ICON,
+    show: false,
     webPreferences: { nodeIntegration: true, contextIsolation: false }
   })
   quickWin.loadFile('quick.html')
   quickWin.on('closed', () => { quickWin = null })
+  quickWin.once('ready-to-show', () => forceShowOnTop(quickWin))
   quickWin.webContents.once('did-finish-load', () => {
     quickWin.webContents.send('quick-text', text)
   })
@@ -1014,31 +1021,37 @@ async function openQuickTranslate() {
 
 // ── Settings / Vocab windows ───────────────────────────────────────────
 function openSettingsWindow() {
-  if (settingsWin && !settingsWin.isDestroyed()) { settingsWin.focus(); return }
+  if (settingsWin && !settingsWin.isDestroyed()) { forceShowOnTop(settingsWin); return }
   settingsWin = new BrowserWindow({
     width: 560, height: 580,
     title: 'Lensy — 设置',
     resizable: false,
+    alwaysOnTop: true,
     icon: APP_ICON,
+    show: false,
     webPreferences: { nodeIntegration: true, contextIsolation: false }
   })
   settingsWin.loadFile('settings.html')
   settingsWin.on('closed', () => { settingsWin = null })
+  settingsWin.once('ready-to-show', () => forceShowOnTop(settingsWin))
 }
 
 ipcMain.on('open-settings', () => openSettingsWindow())
 ipcMain.on('open-vocab',    () => openVocabWindow())
 
 function openVocabWindow() {
-  if (vocabWin && !vocabWin.isDestroyed()) { vocabWin.focus(); return }
+  if (vocabWin && !vocabWin.isDestroyed()) { forceShowOnTop(vocabWin); return }
   vocabWin = new BrowserWindow({
     width: 800, height: 600,
     title: 'Lensy — 生词本',
+    alwaysOnTop: true,
     icon: APP_ICON,
+    show: false,
     webPreferences: { nodeIntegration: true, contextIsolation: false }
   })
   vocabWin.loadFile('vocab.html')
   vocabWin.on('closed', () => { vocabWin = null })
+  vocabWin.once('ready-to-show', () => forceShowOnTop(vocabWin))
 }
 
 function ensureApiKey() {
