@@ -501,12 +501,7 @@ async function openOverlay() {
     const { width, height } = display.bounds
     frozenScale = display.scaleFactor
 
-    // INSTANT FEEDBACK: show dim overlay immediately, before capture
-    overlayWin.setFullScreen(true)
-    overlayWin.show()
-    overlayWin.focus()
-
-    // Capture screen in parallel — user already sees dimmed screen
+    // Must capture BEFORE showing overlay, otherwise we capture the overlay itself
     log('capturing screen for freeze:', { width, height, scale: frozenScale })
     const sources = await desktopCapturer.getSources({
       types: ['screen'],
@@ -519,12 +514,15 @@ async function openOverlay() {
     const fsSize = frozenScreenshot.getSize()
     log('frozen screenshot size:', fsSize)
 
+    // Send the frozen image to pre-warmed overlay, then show
     if (overlayWin && !overlayWin.isDestroyed()) {
+      overlayWin.setFullScreen(true)
       overlayWin.webContents.send('frozen-image', {
         dataUrl: frozenScreenshot.toDataURL(),
         naturalWidth: fsSize.width,
         naturalHeight: fsSize.height
       })
+      // overlay.html will send 'overlay-ready' after image renders → triggers show()
     }
     overlayWin.on('closed', () => {
       overlayWin = null
