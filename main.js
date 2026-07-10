@@ -652,6 +652,7 @@ ipcMain.on('capture-region', async (event, region) => {
     const engine = settings.ocr_engine || 'tesseract'
     log('running OCR engine:', engine)
     let ocrResult
+    let actualOcrEngine = engine
     try {
       const t0 = Date.now()
       if (engine === 'umi') {
@@ -674,10 +675,12 @@ ipcMain.on('capture-region', async (event, region) => {
       }
       try {
         ocrResult = await runTesseract(tmpImg)
+        actualOcrEngine = 'tesseract'
         log('Tesseract fallback words:', ocrResult.words?.length)
       } catch (e2) {
         log('Tesseract fallback also failed, trying Windows OCR:', e2.message)
         ocrResult = await runWindowsOCR(tmpImg)
+        actualOcrEngine = 'windows'
       }
     }
 
@@ -713,7 +716,7 @@ ipcMain.on('capture-region', async (event, region) => {
     }
 
     log('opening result window')
-    openResultWindow(croppedDataUrl, ocrResult, region)
+    openResultWindow(croppedDataUrl, ocrResult, region, actualOcrEngine)
     log('result window opened')
 
   } catch (err) {
@@ -791,7 +794,7 @@ function runWindowsOCR(imagePath) {
   })
 }
 
-function openResultWindow(dataUrl, ocrResult, region) {
+function openResultWindow(dataUrl, ocrResult, region, ocrEngine) {
   const prevWin = resultWin
   resultWin = null
   if (prevWin && !prevWin.isDestroyed()) {
@@ -838,7 +841,7 @@ function openResultWindow(dataUrl, ocrResult, region) {
   myWin.webContents.once('did-finish-load', () => {
     log('result window did-finish-load, sending init')
     if (!myWin.isDestroyed()) {
-      myWin.webContents.send('init', { dataUrl, ocrResult, region })
+      myWin.webContents.send('init', { dataUrl, ocrResult, region, ocrEngine })
     } else {
       log('result window already destroyed before init')
     }

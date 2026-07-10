@@ -189,11 +189,31 @@
 
   #translation-content {
     flex: 1;
+    position: relative;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 4px 18px 18px;
   }
 
+  #ocr-watermark {
+    position: absolute;
+    top: 46%;
+    left: 50%;
+    z-index: 0;
+    transform: translate(-50%, -50%) rotate(-45deg);
+    color: rgba(118, 114, 107, 0.14);
+    font-size: 34px;
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: 2px;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
+  }
+
   #full-translation {
+    position: relative;
+    z-index: 1;
     font-size: 14.5px;
     line-height: 1.75;
     color: var(--accent);
@@ -410,6 +430,7 @@
     </div>
     <div id="translation-header" style="margin-top: 4px;">翻译结果</div>
     <div id="translation-content">
+      <div id="ocr-watermark" aria-hidden="true"></div>
       <div id="full-translation">等待识别…</div>
     </div>
   </div>
@@ -435,8 +456,14 @@ function rerenderTokens() {
 }
 
 let resizeObs = null
-ipcRenderer.on('init', (event, { dataUrl, ocrResult, region }) => {
+ipcRenderer.on('init', (event, { dataUrl, ocrResult, region, ocrEngine }) => {
   ocrData = ocrResult
+  const engineLabels = {
+    windows: 'WINDOWS OCR',
+    umi: 'UMI-OCR',
+    tesseract: 'TESSERACT'
+  }
+  document.getElementById('ocr-watermark').textContent = engineLabels[ocrEngine] || 'OCR'
   const img = document.getElementById('screenshot')
   img.src = dataUrl
 
