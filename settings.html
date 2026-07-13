@@ -2,10 +2,11 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'">
 <title>Lensy — 设置</title>
 <link rel="stylesheet" href="theme.css">
 <style>
-  body { padding: 24px 28px; }
+  body { padding: 24px 28px; overflow-y: auto; }
   h2 { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
   .subtitle { color: var(--text-muted); font-size: 12.5px; margin-bottom: 22px; }
   .field { margin-bottom: 18px; }
@@ -33,6 +34,12 @@
   #test-result { font-size: 12px; margin-top: 6px; }
   .ok    { color: #2D8659; }
   .err   { color: var(--danger); }
+  .status-card { padding: 11px 13px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--bg-elev); }
+  .status-line { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #A6A39D; }
+  .status-dot.online { background: #2D8659; }
+  .status-dot.offline { background: var(--accent); }
+  .status-dot.missing { background: var(--danger); }
   hr { border: none; border-top: 1px solid var(--border-soft); margin: 22px 0; }
 </style>
 </head>
@@ -47,7 +54,7 @@
     <button class="btn-ghost btn" id="toggle-key">显示</button>
     <button class="btn-ghost btn" id="test-key">测试连接</button>
   </div>
-  <div class="hint">在 platform.deepseek.com 注册获取。本地保存在 config.json，不会上传。</div>
+  <div class="hint">在 platform.deepseek.com 注册获取。本地保存在 config.json，仅用于调用 DeepSeek API。</div>
   <div id="test-result"></div>
 </div>
 
@@ -64,24 +71,54 @@
 <div class="field">
   <label>OCR 识别引擎</label>
   <select id="ocr-engine" style="width: 100%;">
-    <option value="tesseract">Tesseract.js（本地，免费，普通文本好）</option>
-    <option value="umi">Umi-OCR（本地服务，准确度高，需先启动 Umi-OCR）</option>
+    <option value="umi">Umi-OCR（推荐，字幕与复杂背景更稳定，需先启动服务）</option>
+    <option value="tesseract">Tesseract.js（本地内置，无需额外程序）</option>
     <option value="windows">Windows 系统 OCR（最快，准确度一般）</option>
   </select>
   <div class="hint">
     动画字幕 / 复杂字体推荐 Umi-OCR。下载：
     <a href="#" id="umi-link" style="color: var(--accent);">github.com/hiroi-sora/Umi-OCR</a><br>
-    安装后打开 Umi → 设置 → 全局设置 → 启用 HTTP 服务（默认端口 1224）
+    解压一次即可；Lensy 会自动查找、启动并连接本地服务。
   </div>
 </div>
 
-<div class="field" id="umi-endpoint-field">
-  <label>Umi-OCR 服务地址</label>
+<div id="umi-fields">
+<div class="field">
+  <label>Umi-OCR 程序</label>
   <div class="row">
-    <input type="text" id="umi-endpoint" placeholder="http://127.0.0.1:1224">
-    <button class="btn-ghost btn" id="test-umi">测试连接</button>
+    <input type="text" id="umi-executable" placeholder="Lensy 会自动查找，也可以手动选择" readonly>
+    <button class="btn-ghost btn" id="choose-umi">选择程序</button>
   </div>
-  <div id="umi-test-result" style="font-size: 12px; margin-top: 6px;"></div>
+  <div class="hint">无需单独设置 Umi 开机启动；Lensy 可以统一负责启动和连接。</div>
+</div>
+
+<div class="field">
+  <label class="toggle">
+    <input type="checkbox" id="umi-auto-start">
+    <div class="toggle-body">
+      <div class="title">Lensy 启动时自动启动 Umi-OCR</div>
+      <div class="desc">仅在使用 Umi 引擎时启动，服务就绪后隐藏 Umi 主窗口</div>
+    </div>
+  </label>
+</div>
+
+<div class="field">
+  <label>本地服务地址</label>
+  <input type="text" id="umi-endpoint" placeholder="http://127.0.0.1:1224">
+  <div class="hint">出于安全考虑，仅允许 localhost / 127.0.0.1 / ::1。</div>
+</div>
+
+<div class="field status-card">
+  <div class="status-line">
+    <span class="status-dot" id="umi-status-dot"></span>
+    <span id="umi-status-text">正在检测 Umi-OCR…</span>
+  </div>
+  <div class="row" style="margin-top: 10px;">
+    <button class="btn" id="start-umi">一键启动</button>
+    <button class="btn-ghost btn" id="test-umi">重新检测</button>
+  </div>
+  <div id="umi-test-result" style="font-size: 12px; margin-top: 7px;"></div>
+</div>
 </div>
 
 <hr>
@@ -128,43 +165,111 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const { ipcRenderer } = require('electron')
+const api = window.lensy
 
 let initial = null
 async function load() {
-  initial = await ipcRenderer.invoke('settings-get')
+  initial = await api.settings.get()
   document.getElementById('api-key').value = initial.deepseek_api_key || ''
   document.getElementById('model').value = initial.model || 'deepseek-chat'
   document.getElementById('hotkey-capture').value = initial.hotkey_capture || 'Alt+Shift+T'
   document.getElementById('hotkey-clipboard').value = initial.hotkey_clipboard || 'Alt+Shift+D'
   document.getElementById('enable-clipboard-mode').checked = !!initial.enable_clipboard_mode
   document.getElementById('auto-translate').checked = !!initial.auto_translate
-  document.getElementById('ocr-engine').value = initial.ocr_engine || 'tesseract'
+  document.getElementById('ocr-engine').value = initial.ocr_engine || 'umi'
   document.getElementById('umi-endpoint').value = initial.umi_endpoint || 'http://127.0.0.1:1224'
+  document.getElementById('umi-executable').value = initial.umi_executable_path || ''
+  document.getElementById('umi-auto-start').checked = initial.umi_auto_start !== false
   updateClipboardFieldVisibility()
   updateUmiFieldVisibility()
+  await refreshUmiStatus()
 }
 
 function updateUmiFieldVisibility() {
-  document.getElementById('umi-endpoint-field').style.display =
+  document.getElementById('umi-fields').style.display =
     document.getElementById('ocr-engine').value === 'umi' ? '' : 'none'
 }
 document.getElementById('ocr-engine').addEventListener('change', updateUmiFieldVisibility)
 
+async function saveUmiSettings() {
+  return api.settings.save({
+    ocr_engine: document.getElementById('ocr-engine').value,
+    umi_endpoint: document.getElementById('umi-endpoint').value || 'http://127.0.0.1:1224',
+    umi_executable_path: document.getElementById('umi-executable').value,
+    umi_auto_start: document.getElementById('umi-auto-start').checked
+  })
+}
+
+function renderUmiStatus(res) {
+  const dot = document.getElementById('umi-status-dot')
+  const text = document.getElementById('umi-status-text')
+  dot.className = 'status-dot ' + (res.status || 'missing')
+  text.textContent = res.message || 'Umi-OCR 状态未知'
+  if (res.executablePath) document.getElementById('umi-executable').value = res.executablePath
+}
+
+async function refreshUmiStatus() {
+  const result = document.getElementById('umi-test-result')
+  try {
+    await saveUmiSettings()
+    const res = await api.umi.status()
+    renderUmiStatus(res)
+    result.textContent = ''
+    return res
+  } catch (error) {
+    result.textContent = '✗ ' + error.message
+    result.className = 'err'
+    return null
+  }
+}
+
 document.getElementById('test-umi').addEventListener('click', async () => {
   const r = document.getElementById('umi-test-result')
   r.textContent = '测试中…'; r.className = ''
-  await ipcRenderer.invoke('settings-set', {
-    umi_endpoint: document.getElementById('umi-endpoint').value
-  })
-  const res = await ipcRenderer.invoke('test-umi')
-  r.textContent = res.ok ? '✓ ' + res.msg : '✗ ' + res.msg
-  r.className = res.ok ? 'ok' : 'err'
+  const res = await refreshUmiStatus()
+  if (res) {
+    r.textContent = res.ok ? '✓ ' + res.message : '✗ ' + res.message
+    r.className = res.ok ? 'ok' : 'err'
+  }
+})
+
+document.getElementById('start-umi').addEventListener('click', async () => {
+  const button = document.getElementById('start-umi')
+  const r = document.getElementById('umi-test-result')
+  button.disabled = true
+  button.textContent = '启动中…'
+  r.textContent = '正在启动并等待本地服务…'; r.className = ''
+  try {
+    await saveUmiSettings()
+    const res = await api.umi.start()
+    renderUmiStatus(res)
+    r.textContent = (res.ok ? '✓ ' : '✗ ') + res.message
+    r.className = res.ok ? 'ok' : 'err'
+  } catch (error) {
+    r.textContent = '✗ ' + error.message
+    r.className = 'err'
+  } finally {
+    button.disabled = false
+    button.textContent = '一键启动'
+  }
+})
+
+document.getElementById('choose-umi').addEventListener('click', async () => {
+  try {
+    const res = await api.umi.chooseExecutable()
+    if (!res.ok) return
+    document.getElementById('umi-executable').value = res.executablePath
+    await refreshUmiStatus()
+  } catch (error) {
+    const r = document.getElementById('umi-test-result')
+    r.textContent = '✗ ' + error.message
+    r.className = 'err'
+  }
 })
 
 document.getElementById('umi-link').addEventListener('click', (e) => {
   e.preventDefault()
-  require('electron').shell.openExternal('https://github.com/hiroi-sora/Umi-OCR')
+  api.umi.openHomepage()
 })
 load()
 
@@ -186,11 +291,11 @@ document.getElementById('test-key').addEventListener('click', async () => {
   r.textContent = '测试中…'
   r.className = ''
   // Save key first
-  await ipcRenderer.invoke('settings-set', {
+  await api.settings.save({
     deepseek_api_key: document.getElementById('api-key').value,
     model: document.getElementById('model').value
   })
-  const res = await ipcRenderer.invoke('test-api')
+  const res = await api.settings.testApi()
   r.textContent = res.ok ? '✓ 连接成功' : '✗ ' + res.msg
   r.className = res.ok ? 'ok' : 'err'
 })
@@ -203,18 +308,24 @@ function toast(msg) {
 }
 
 document.getElementById('save').addEventListener('click', async () => {
-  await ipcRenderer.invoke('settings-set', {
-    deepseek_api_key: document.getElementById('api-key').value,
-    model: document.getElementById('model').value,
-    hotkey_capture: document.getElementById('hotkey-capture').value || 'Alt+Shift+T',
-    hotkey_clipboard: document.getElementById('hotkey-clipboard').value || 'Alt+Shift+D',
-    enable_clipboard_mode: document.getElementById('enable-clipboard-mode').checked,
-    auto_translate: document.getElementById('auto-translate').checked,
-    ocr_engine: document.getElementById('ocr-engine').value,
-    umi_endpoint: document.getElementById('umi-endpoint').value || 'http://127.0.0.1:1224'
-  })
-  toast('已保存')
-  setTimeout(() => window.close(), 600)
+  try {
+    await api.settings.save({
+      deepseek_api_key: document.getElementById('api-key').value,
+      model: document.getElementById('model').value,
+      hotkey_capture: document.getElementById('hotkey-capture').value || 'Alt+Shift+T',
+      hotkey_clipboard: document.getElementById('hotkey-clipboard').value || 'Alt+Shift+D',
+      enable_clipboard_mode: document.getElementById('enable-clipboard-mode').checked,
+      auto_translate: document.getElementById('auto-translate').checked,
+      ocr_engine: document.getElementById('ocr-engine').value,
+      umi_endpoint: document.getElementById('umi-endpoint').value || 'http://127.0.0.1:1224',
+      umi_executable_path: document.getElementById('umi-executable').value,
+      umi_auto_start: document.getElementById('umi-auto-start').checked
+    })
+    toast('已保存')
+    setTimeout(() => window.close(), 600)
+  } catch (error) {
+    toast('保存失败：' + error.message)
+  }
 })
 
 document.getElementById('cancel').addEventListener('click', () => window.close())

@@ -2,6 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'">
 <title>Lensy</title>
 <style>
   :root {
@@ -443,7 +444,7 @@
 </div>
 
 <script>
-const { ipcRenderer } = require('electron')
+const api = window.lensy
 
 let ocrData = null
 let scaleFactor = 1
@@ -456,7 +457,7 @@ function rerenderTokens() {
 }
 
 let resizeObs = null
-ipcRenderer.on('init', (event, { dataUrl, ocrResult, region, ocrEngine }) => {
+api.translation.onResultInit(({ dataUrl, ocrResult, region, ocrEngine }) => {
   ocrData = ocrResult
   const engineLabels = {
     windows: 'WINDOWS OCR',
@@ -481,7 +482,7 @@ ipcRenderer.on('init', (event, { dataUrl, ocrResult, region, ocrEngine }) => {
   document.getElementById('src-text').value = ocrResult.fullText || ''
 
   // Auto-translate on load (respect settings)
-  ipcRenderer.invoke('settings-get').then(s => {
+  api.settings.get().then(s => {
     if (ocrResult.fullText && ocrResult.fullText.trim().length > 0) {
       if (s.auto_translate) autoTranslate(ocrResult.fullText)
       else {
@@ -503,7 +504,7 @@ async function autoTranslate(text) {
   output.innerHTML = '<span class="spinner"></span> 正在翻译…'
   output.style.color = ''   // clear inline color so CSS applies
   try {
-    const result = await ipcRenderer.invoke('translate-all', text)
+    const result = await api.translation.translateAll(text)
     output.textContent = result
     output.style.color = ''
     status.textContent = '翻译完成 · 点击词块查看详细词义'
@@ -584,55 +585,60 @@ async function showWordPopup(tokenEl, word) {
   popup.style.display = 'block'
 
   const context = ocrData ? ocrData.fullText : word
-  const data = await ipcRenderer.invoke('get-word-meaning', word, context)
+  const data = await api.translation.getWordMeaning(word, context)
   renderPopup(content, data)
 }
 
 function renderPopup(container, d) {
-  let html = `<div class="pop-head-row">
-    <span class="pop-word">${d.word || ''}</span>
-    <button class="pop-icon-btn" data-act="speak" title="朗读">🔊</button>
-    <button class="pop-icon-btn pop-star" data-act="star" title="加入生词本">☆</button>
-  </div>`
-  if (d.phonetic) html += `<div class="pop-phonetic">${d.phonetic}</div>`
-  const tags = []
-  if (d.pos)       tags.push(`<span class="pop-pos">${d.pos}</span>`)
-  if (d.frequency) tags.push(`<span class="pop-freq">${d.frequency}</span>`)
-  if (tags.length) html += `<div class="pop-tags">${tags.join('')}</div>`
+  const make = (tag, className, text) => {
+    const node = document.createElement(tag)
+    if (className) node.className = className
+    if (text !== undefined) node.textContent = text
+    return node
+  }
+  container.replaceChildren()
 
-  if (d.meaning_cn) html += `<div class="pop-meaning-cn">${d.meaning_cn}</div>`
-  if (d.meaning_en) html += `<div class="pop-meaning-en">${d.meaning_en}</div>`
+  const head = make('div', 'pop-head-row')
+  head.appendChild(make('span', 'pop-word', d.word || ''))
+  const speakButton = make('button', 'pop-icon-btn', '🔊')
+  speakButton.type = 'button'; speakButton.title = '朗读'
+  const starButton = make('button', 'pop-icon-btn pop-star', '☆')
+  starButton.type = 'button'; starButton.title = '加入生词本'
+  head.append(speakButton, starButton)
+  container.appendChild(head)
 
+  if (d.phonetic) container.appendChild(make('div', 'pop-phonetic', d.phonetic))
+  if (d.pos || d.frequency) {
+    const tags = make('div', 'pop-tags')
+    if (d.pos) tags.appendChild(make('span', 'pop-pos', d.pos))
+    if (d.frequency) tags.appendChild(make('span', 'pop-freq', d.frequency))
+    container.appendChild(tags)
+  }
+  if (d.meaning_cn) container.appendChild(make('div', 'pop-meaning-cn', d.meaning_cn))
+  if (d.meaning_en) container.appendChild(make('div', 'pop-meaning-en', d.meaning_en))
   if (d.root) {
-    html += `<div class="pop-section-title">词根词缀</div>
-             <div class="pop-root">${d.root}</div>`
+    container.appendChild(make('div', 'pop-section-title', '词根词缀'))
+    container.appendChild(make('div', 'pop-root', d.root))
   }
-
-  if (d.examples && d.examples.length) {
-    html += `<div class="pop-section-title">例句</div><div class="pop-examples">`
-    d.examples.forEach(ex => {
-      const highlighted = (ex || '').replace(new RegExp(d.word, 'gi'), m => `<em>${m}</em>`)
-      html += `• ${highlighted}<br>`
-    })
-    html += `</div>`
+  if (Array.isArray(d.examples) && d.examples.length) {
+    container.appendChild(make('div', 'pop-section-title', '例句'))
+    const examples = make('div', 'pop-examples')
+    d.examples.forEach(example => examples.appendChild(make('div', '', '• ' + (example || ''))))
+    container.appendChild(examples)
   }
-
-  if (d.synonyms && d.synonyms.length) {
-    html += `<div class="pop-section-title">近义词</div><div class="pop-synonyms">`
-    d.synonyms.forEach(s => { html += `<span class="pop-syn-tag">${s}</span>` })
-    html += `</div>`
+  if (Array.isArray(d.synonyms) && d.synonyms.length) {
+    container.appendChild(make('div', 'pop-section-title', '近义词'))
+    const synonyms = make('div', 'pop-synonyms')
+    d.synonyms.forEach(synonym => synonyms.appendChild(make('span', 'pop-syn-tag', synonym)))
+    container.appendChild(synonyms)
   }
+  if (d.note) container.appendChild(make('div', 'pop-note', '💡 ' + d.note))
 
-  if (d.note) html += `<div class="pop-note">💡 ${d.note}</div>`
-
-  container.innerHTML = html
-
-  // wire icon buttons
-  container.querySelector('[data-act="speak"]')?.addEventListener('click', () => speakWord(d.word))
-  container.querySelector('[data-act="star"]')?.addEventListener('click', async (e) => {
-    const btn = e.currentTarget
+  speakButton.addEventListener('click', () => speakWord(d.word))
+  starButton.addEventListener('click', async () => {
+    const btn = starButton
     const ctx = ocrData ? ocrData.fullText : ''
-    const r = await ipcRenderer.invoke('vocab-add', { ...d, context: ctx })
+    const r = await api.vocab.add({ ...d, context: ctx })
     btn.textContent = '★'
     btn.classList.add('active')
     showToast(r.duplicate ? '已更新到生词本' : '✓ 已加入生词本')
@@ -704,8 +710,8 @@ document.getElementById('btn-copy-trans').addEventListener('click', () => {
   document.getElementById('status').textContent = '译文已复制'
 })
 
-document.getElementById('btn-vocab').addEventListener('click', () => ipcRenderer.send('open-vocab'))
-document.getElementById('btn-settings').addEventListener('click', () => ipcRenderer.send('open-settings'))
+document.getElementById('btn-vocab').addEventListener('click', () => api.vocab.open())
+document.getElementById('btn-settings').addEventListener('click', () => api.settings.open())
 </script>
 </body>
 </html>

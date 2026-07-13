@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.2.0 — Secure Runtime & Managed Umi-OCR
+
+### Changes
+
+- 所有渲染窗口启用 `contextIsolation` 与沙箱，关闭 Node.js 集成
+- 新增 preload 白名单接口和 Content Security Policy
+- 设置写入改为字段白名单，Umi 服务仅允许本机环回地址
+- 自动发现、一键启动并检测 Umi-OCR，可随 Lensy 自动拉起
+- 新增小高度框选自动扩边和热键注册失败提示
+- 增加安全结构、Umi 管理和框选逻辑回归测试
+
 ## v0.1.1 — Branding (Lensy)
 
 ### Changes

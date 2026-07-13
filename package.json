@@ -1,10 +1,11 @@
 {
   "name": "lensy",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Lensy — 框选屏幕翻译 + 单词查询 + Anki 生词本，Claude 风格暖色 UI",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "test": "node tests/run.js",
     "build": "electron-builder --win --x64",
     "pack": "electron-builder --dir"
   },
@@ -26,12 +27,15 @@
     "productName": "Lensy",
     "files": [
       "main.js",
+      "preload.js",
       "overlay.html",
       "result.html",
       "settings.html",
       "vocab.html",
       "quick.html",
+      "toast.html",
       "theme.css",
+      "lib/**/*",
       "ocr.ps1",
       "package.json",
       "assets/icon.png",

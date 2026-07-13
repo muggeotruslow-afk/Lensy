@@ -2,6 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
@@ -57,7 +58,7 @@
 <canvas id="c"></canvas>
 
 <script>
-const { ipcRenderer } = require('electron')
+const api = window.lensy
 const canvas = document.getElementById('c')
 const ctx = canvas.getContext('2d')
 const coords = document.getElementById('coords')
@@ -127,13 +128,13 @@ document.addEventListener('mouseup', e => {
   const cw = Math.abs(e.clientX - startX)
   const ch = Math.abs(e.clientY - startY)
 
-  if (cw < 10 || ch < 10) { ipcRenderer.send('cancel-overlay'); return }
+  if (cw < 10 || ch < 10) { api.capture.cancel(); return }
 
   // Convert client (CSS px) to image (natural px) coordinates
   const tl = clientToImage(cx, cy)
   const br = clientToImage(cx + cw, cy + ch)
 
-  ipcRenderer.send('capture-region', {
+  api.capture.submitRegion({
     x: tl.x,
     y: tl.y,
     w: br.x - tl.x,
@@ -142,17 +143,17 @@ document.addEventListener('mouseup', e => {
 })
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') ipcRenderer.send('cancel-overlay')
+  if (e.key === 'Escape') api.capture.cancel()
 })
 
-ipcRenderer.on('frozen-image', (event, payload) => {
+api.capture.onFrozenImage(payload => {
   imgNaturalW = payload.naturalWidth
   imgNaturalH = payload.naturalHeight
   const img = document.getElementById('bg')
   img.onload = () => {
     // image painted — tell main to show window
     requestAnimationFrame(() => {
-      requestAnimationFrame(() => ipcRenderer.send('overlay-ready'))
+      requestAnimationFrame(() => api.capture.ready())
     })
   }
   img.src = payload.dataUrl

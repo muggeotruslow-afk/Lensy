@@ -2,6 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'">
 <title>Lensy — 生词本</title>
 <link rel="stylesheet" href="theme.css">
 <style>
@@ -57,8 +58,14 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const { ipcRenderer } = require('electron')
+const api = window.lensy
 let allWords = []
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, char => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+  })[char])
+}
 
 function toast(msg) {
   const t = document.getElementById('toast')
@@ -80,16 +87,16 @@ function render(words) {
     return
   }
   list.innerHTML = words.map(w => `
-    <div class="word-card" data-id="${w.id}">
+    <div class="word-card" data-id="${escapeHtml(w.id)}">
       <div class="wc-head">
-        <span class="wc-word">${w.word || ''}</span>
-        ${w.phonetic ? `<span class="wc-phon">${w.phonetic}</span>` : ''}
-        ${w.pos ? `<span class="wc-pos">${w.pos}</span>` : ''}
-        ${w.frequency ? `<span class="wc-freq">${w.frequency}</span>` : ''}
+        <span class="wc-word">${escapeHtml(w.word)}</span>
+        ${w.phonetic ? `<span class="wc-phon">${escapeHtml(w.phonetic)}</span>` : ''}
+        ${w.pos ? `<span class="wc-pos">${escapeHtml(w.pos)}</span>` : ''}
+        ${w.frequency ? `<span class="wc-freq">${escapeHtml(w.frequency)}</span>` : ''}
       </div>
-      ${w.meaning_cn ? `<div class="wc-meaning">${w.meaning_cn}</div>` : ''}
-      ${w.meaning_en ? `<div class="wc-meaning-en">${w.meaning_en}</div>` : ''}
-      ${w.root ? `<div class="wc-root">📖 ${w.root}</div>` : ''}
+      ${w.meaning_cn ? `<div class="wc-meaning">${escapeHtml(w.meaning_cn)}</div>` : ''}
+      ${w.meaning_en ? `<div class="wc-meaning-en">${escapeHtml(w.meaning_en)}</div>` : ''}
+      ${w.root ? `<div class="wc-root">📖 ${escapeHtml(w.root)}</div>` : ''}
       <div class="wc-actions">
         <button class="btn-ghost btn act-speak">🔊 朗读</button>
         <button class="btn-danger btn act-remove">删除</button>
@@ -103,14 +110,14 @@ function render(words) {
     const word = words.find(w => w.id === id)
     card.querySelector('.act-speak').addEventListener('click', () => speak(word.word))
     card.querySelector('.act-remove').addEventListener('click', async () => {
-      await ipcRenderer.invoke('vocab-remove', id)
+      await api.vocab.remove(id)
       load()
     })
   })
 }
 
 async function load() {
-  const v = await ipcRenderer.invoke('vocab-list')
+  const v = await api.vocab.list()
   allWords = v.words || []
   applyFilter()
 }
@@ -128,13 +135,13 @@ document.getElementById('search').addEventListener('input', applyFilter)
 
 document.getElementById('clear').addEventListener('click', async () => {
   if (!confirm('确定清空所有生词？此操作不可撤销。')) return
-  await ipcRenderer.invoke('vocab-clear')
+  await api.vocab.clear()
   load()
   toast('已清空')
 })
 
 document.getElementById('export-csv').addEventListener('click', async () => {
-  const r = await ipcRenderer.invoke('vocab-export-csv')
+  const r = await api.vocab.exportCsv()
   if (r.ok) toast(`✓ 已导出 ${r.count} 词`)
   else toast(r.msg || '导出失败')
 })

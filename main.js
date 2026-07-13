@@ -6,6 +6,11 @@ const os = require('os')
 const OpenAI = require('openai')
 const { createWorker, PSM } = require('tesseract.js')
 const { Jimp } = require('jimp')
+const { protectCaptureRegion } = require('./lib/capture-region')
+const { registerConfiguredHotkeys } = require('./lib/hotkey-registration')
+const { sanitizeSettingsPatch } = require('./lib/settings-policy')
+const { createSecureWebPreferences } = require('./lib/window-security')
+const { createUmiManager } = require('./lib/umi-manager')
 
 const LOG_PATH = path.join(os.tmpdir(), 'lensy.log')
 // Rotate log if it grows beyond 1 MB
@@ -46,9 +51,20 @@ const DEFAULT_SETTINGS = {
   auto_translate:   true,
   enable_clipboard_mode: false,
   model:            'deepseek-chat',
-  ocr_engine:       'tesseract',          // 'tesseract' | 'umi' | 'windows'
+  ocr_engine:       'umi',                // 'umi' | 'tesseract' | 'windows'
   umi_endpoint:     'http://127.0.0.1:1224',
-  umi_language:     ''                    // empty = use Umi default; e.g. 'models/config_chinese.txt'
+  umi_language:     '',                   // empty = use Umi default; e.g. 'models/config_chinese.txt'
+  umi_executable_path: '',
+  umi_auto_start:   true
+}
+
+function sanitizeStoredSettings(raw) {
+  const safe = {}
+  for (const [key, value] of Object.entries(raw || {})) {
+    try { Object.assign(safe, sanitizeSettingsPatch({ [key]: value })) }
+    catch (error) { log('Ignoring invalid stored setting:', key, error.message) }
+  }
+  return safe
 }
 
 function loadSettings() {
@@ -56,7 +72,7 @@ function loadSettings() {
     fs.mkdirSync(USER_DATA, { recursive: true })
     if (fs.existsSync(CFG_PATH)) {
       const cfg = JSON.parse(fs.readFileSync(CFG_PATH, 'utf8'))
-      return { ...DEFAULT_SETTINGS, ...cfg }
+      return { ...DEFAULT_SETTINGS, ...sanitizeStoredSettings(cfg) }
     } else {
       fs.writeFileSync(CFG_PATH, JSON.stringify(DEFAULT_SETTINGS, null, 2))
     }
@@ -337,10 +353,47 @@ let quickWin = null
 let tray = null
 let frozenScreenshot = null
 let frozenScale = 1
+let umiManager = null
 
 app.disableHardwareAcceleration()
 
 const APP_ICON = path.join(__dirname, 'assets', 'icon.png')
+const PRELOAD_PATH = path.join(__dirname, 'preload.js')
+const secureWebPreferences = () => createSecureWebPreferences(PRELOAD_PATH)
+
+app.on('web-contents-created', (_event, contents) => {
+  contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  contents.on('will-attach-webview', event => event.preventDefault())
+  contents.on('will-navigate', (event, url) => {
+    const current = contents.getURL()
+    if (current && url !== current) event.preventDefault()
+  })
+})
+
+function createAppUmiManager() {
+  const desktopPath = app.getPath('desktop')
+  const userProfile = process.env.USERPROFILE || os.homedir()
+  const localAppData = process.env.LOCALAPPDATA || ''
+  const programFiles = process.env.ProgramFiles || 'C:\\Program Files'
+  return createUmiManager({
+    getSettings: () => settings,
+    getCandidatePaths: () => [
+      path.join(process.resourcesPath || '', 'Umi-OCR', 'Umi-OCR.exe'),
+      path.join(userProfile, 'scoop', 'apps', 'umi-ocr', 'current', 'Umi-OCR.exe'),
+      path.join(userProfile, 'scoop', 'apps', 'umi-ocr-paddle', 'current', 'Umi-OCR.exe'),
+      path.join(localAppData, 'Programs', 'Umi-OCR', 'Umi-OCR.exe'),
+      path.join(programFiles, 'Umi-OCR', 'Umi-OCR.exe')
+    ],
+    getSearchRoots: () => [path.join(desktopPath, '工具')],
+    onExecutableResolved: executablePath => {
+      if (settings.umi_executable_path === executablePath) return
+      settings = { ...settings, umi_executable_path: executablePath }
+      saveSettings(settings)
+      log('Saved discovered Umi-OCR path:', executablePath)
+    },
+    log
+  })
+}
 
 // Force a window to the very top, even against fullscreen apps (B站/OBS/games).
 // Re-attempts a few times to beat z-order racing. Keeps alwaysOnTop until window closes.
@@ -382,7 +435,7 @@ function showToast(title, body) {
       focusable: false,
       hasShadow: false,
       show: false,
-      webPreferences: { nodeIntegration: true, contextIsolation: false }
+      webPreferences: secureWebPreferences()
     })
     toastWin.setIgnoreMouseEvents(true)
     toastWin.loadFile('toast.html')
@@ -411,22 +464,29 @@ app.on('second-instance', () => {
 
 function registerHotkeys() {
   globalShortcut.unregisterAll()
-  try {
-    if (settings.hotkey_capture) {
-      globalShortcut.register(settings.hotkey_capture, () => {
-        log('>>> capture hotkey fired'); openOverlay()
-      })
+  const result = registerConfiguredHotkeys(
+    settings,
+    (accelerator, callback) => globalShortcut.register(accelerator, callback),
+    {
+      capture: () => { log('>>> capture hotkey fired'); openOverlay() },
+      clipboard: () => { log('>>> clipboard hotkey fired'); openQuickTranslate() }
     }
-    if (settings.enable_clipboard_mode && settings.hotkey_clipboard) {
-      globalShortcut.register(settings.hotkey_clipboard, () => {
-        log('>>> clipboard hotkey fired'); openQuickTranslate()
-      })
-    }
-    log('Hotkeys registered. capture:', settings.hotkey_capture,
-        'clipboard:', settings.enable_clipboard_mode ? settings.hotkey_clipboard : '(off)')
-  } catch (e) {
-    log('registerHotkeys error:', e.message)
+  )
+
+  log('Hotkey registration result:', result)
+  if (result.failures.length) {
+    const labels = { capture: '截图翻译', clipboard: '剪贴板翻译' }
+    const details = result.failures.map(f =>
+      `${labels[f.kind] || '快捷键'} ${f.accelerator}：${f.reason}`
+    ).join('\n')
+    const guidance = `${details}\n请在 Lensy 设置中更换快捷键。`
+    log('Hotkey registration failed:', guidance)
+    try {
+      if (tray) tray.displayBalloon({ title: 'Lensy 热键注册失败', content: guidance })
+    } catch (e) { log('Hotkey failure balloon error:', e.message) }
+    showToast('热键注册失败', guidance)
   }
+  return result
 }
 
 // Small orange tray icon (16x16 solid)
@@ -482,9 +542,18 @@ function buildTray() {
 }
 
 app.whenReady().then(async () => {
+  umiManager = createAppUmiManager()
   buildTray()
   registerHotkeys()
   log('Lensy ready.')
+
+  if (settings.ocr_engine === 'umi' && settings.umi_auto_start) {
+    setTimeout(async () => {
+      const result = await umiManager.start()
+      log('Umi auto-start result:', result)
+      if (!result.ok) showToast('Umi-OCR 未就绪', result.message)
+    }, 250)
+  }
 
   // pre-warm Tesseract in background so first OCR is fast
   initTesseract().catch(e => log('Tesseract pre-warm failed:', e.message))
@@ -524,7 +593,7 @@ async function precreateOverlay() {
       hasShadow: false,
       show: false,
       backgroundColor: '#000',
-      webPreferences: { nodeIntegration: true, contextIsolation: false }
+      webPreferences: secureWebPreferences()
     })
     win.loadFile('overlay.html')
     await new Promise(r => win.webContents.once('did-finish-load', r))
@@ -609,16 +678,10 @@ ipcMain.on('capture-region', async (event, region) => {
     if (!frozenScreenshot) throw new Error('No frozen screenshot available')
 
     const fsSize = frozenScreenshot.getSize()
-    const cropRegion = {
-      x:      Math.max(0, Math.min(Math.round(region.x), fsSize.width - 1)),
-      y:      Math.max(0, Math.min(Math.round(region.y), fsSize.height - 1)),
-      width:  Math.max(1, Math.round(region.w)),
-      height: Math.max(1, Math.round(region.h))
-    }
-    // clamp to image bounds
-    if (cropRegion.x + cropRegion.width  > fsSize.width)  cropRegion.width  = fsSize.width  - cropRegion.x
-    if (cropRegion.y + cropRegion.height > fsSize.height) cropRegion.height = fsSize.height - cropRegion.y
-    log('crop region (clamped):', cropRegion, 'frozen size:', fsSize)
+    const protectedRegion = protectCaptureRegion(region, fsSize, frozenScale)
+    const { expandedVertically, ...cropRegion } = protectedRegion
+    log('crop region (protected):', cropRegion, 'expanded vertically:', expandedVertically,
+        'frozen size:', fsSize, 'scale:', frozenScale)
 
     const cropped = frozenScreenshot.crop(cropRegion)
     const croppedSize = cropped.getSize()
@@ -649,7 +712,7 @@ ipcMain.on('capture-region', async (event, region) => {
       try { overlayWin.hide() } catch (e) { log('overlay hide error:', e.message) }
     }
 
-    const engine = settings.ocr_engine || 'tesseract'
+    const engine = settings.ocr_engine || 'umi'
     log('running OCR engine:', engine)
     let ocrResult
     let actualOcrEngine = engine
@@ -716,7 +779,9 @@ ipcMain.on('capture-region', async (event, region) => {
     }
 
     log('opening result window')
-    openResultWindow(croppedDataUrl, ocrResult, region, actualOcrEngine)
+    openResultWindow(croppedDataUrl, ocrResult, {
+      x: cropRegion.x, y: cropRegion.y, w: cropRegion.width, h: cropRegion.height
+    }, actualOcrEngine)
     log('result window opened')
 
   } catch (err) {
@@ -724,6 +789,11 @@ ipcMain.on('capture-region', async (event, region) => {
     if (overlayWin) {
       try { overlayWin.close() } catch {}
       overlayWin = null
+    }
+    if (err.code === 'CAPTURE_TOO_SMALL') {
+      showToast('框选区域过小', '请拖拽框选文字区域，Lensy 会自动为矮框补足上下边缘。')
+    } else {
+      showToast('截图识别失败', err.message || '请稍后重试')
     }
   }
 })
@@ -822,7 +892,7 @@ function openResultWindow(dataUrl, ocrResult, region, ocrEngine) {
     title: 'Lensy',
     icon: APP_ICON,
     show: false,
-    webPreferences: { nodeIntegration: true, contextIsolation: false }
+    webPreferences: secureWebPreferences()
   })
   resultWin = myWin
 
@@ -953,32 +1023,45 @@ ipcMain.handle('vocab-export-csv', async () => {
 // ── Settings IPC ───────────────────────────────────────────────────────
 ipcMain.handle('settings-get', () => settings)
 ipcMain.handle('settings-set', (event, newSettings) => {
-  settings = { ...settings, ...newSettings }
+  const safePatch = sanitizeSettingsPatch(newSettings)
+  settings = { ...settings, ...safePatch }
   saveSettings(settings)
   // re-init API client if key changed
-  if (newSettings.deepseek_api_key !== undefined) {
+  if (safePatch.deepseek_api_key !== undefined) {
     client.apiKey = settings.deepseek_api_key
   }
-  registerHotkeys()
+  if (['hotkey_capture', 'hotkey_clipboard', 'enable_clipboard_mode'].some(key => key in safePatch)) {
+    registerHotkeys()
+  }
   return settings
 })
 
-ipcMain.handle('test-umi', async () => {
-  try {
-    const endpoint = (settings.umi_endpoint || 'http://127.0.0.1:1224').replace(/\/$/, '')
-    const res = await fetch(endpoint + '/api/ocr', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      // 1x1 transparent PNG
-      body: JSON.stringify({ base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' })
-    })
-    if (!res.ok) return { ok: false, msg: 'HTTP ' + res.status }
-    const j = await res.json()
-    if (j.code === 100 || j.code === 101) return { ok: true, msg: 'Umi-OCR 服务可用' }
-    return { ok: false, msg: 'Umi 返回 code=' + j.code + ' ' + (j.data || '') }
-  } catch (e) {
-    return { ok: false, msg: '连接失败: ' + e.message + '。请确认 Umi-OCR 已启动且服务端口开启。' }
-  }
+ipcMain.handle('umi-status', async () => {
+  if (!umiManager) umiManager = createAppUmiManager()
+  return umiManager.check()
+})
+
+ipcMain.handle('umi-start', async () => {
+  if (!umiManager) umiManager = createAppUmiManager()
+  return umiManager.start()
+})
+
+ipcMain.handle('umi-select-executable', async () => {
+  const result = await dialog.showOpenDialog({
+    title: '选择 Umi-OCR.exe',
+    properties: ['openFile'],
+    filters: [{ name: 'Umi-OCR', extensions: ['exe'] }]
+  })
+  if (result.canceled || !result.filePaths[0]) return { ok: false, canceled: true }
+  const safePatch = sanitizeSettingsPatch({ umi_executable_path: result.filePaths[0] })
+  if (!fs.existsSync(safePatch.umi_executable_path)) throw new Error('选择的 Umi-OCR.exe 不存在')
+  settings = { ...settings, ...safePatch }
+  saveSettings(settings)
+  return { ok: true, executablePath: settings.umi_executable_path }
+})
+
+ipcMain.on('open-umi-homepage', () => {
+  shell.openExternal('https://github.com/hiroi-sora/Umi-OCR/releases/latest')
 })
 
 ipcMain.handle('test-api', async () => {
@@ -1014,7 +1097,7 @@ async function openQuickTranslate() {
     alwaysOnTop: true,
     icon: APP_ICON,
     show: false,
-    webPreferences: { nodeIntegration: true, contextIsolation: false }
+    webPreferences: secureWebPreferences()
   })
   quickWin.loadFile('quick.html')
   quickWin.on('closed', () => { quickWin = null })
@@ -1028,13 +1111,13 @@ async function openQuickTranslate() {
 function openSettingsWindow() {
   if (settingsWin && !settingsWin.isDestroyed()) { forceShowOnTop(settingsWin); return }
   settingsWin = new BrowserWindow({
-    width: 560, height: 580,
+    width: 620, height: 760,
     title: 'Lensy — 设置',
-    resizable: false,
+    resizable: true,
     alwaysOnTop: true,
     icon: APP_ICON,
     show: false,
-    webPreferences: { nodeIntegration: true, contextIsolation: false }
+    webPreferences: secureWebPreferences()
   })
   settingsWin.loadFile('settings.html')
   settingsWin.on('closed', () => { settingsWin = null })
@@ -1052,7 +1135,7 @@ function openVocabWindow() {
     alwaysOnTop: true,
     icon: APP_ICON,
     show: false,
-    webPreferences: { nodeIntegration: true, contextIsolation: false }
+    webPreferences: secureWebPreferences()
   })
   vocabWin.loadFile('vocab.html')
   vocabWin.on('closed', () => { vocabWin = null })

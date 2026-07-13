@@ -1,0 +1,6 @@
+require('./capture-region.test')
+require('./hotkey-registration.test')
+require('./settings-policy.test')
+require('./window-security.test')
+require('./umi-manager.test')
+require('./renderer-boundary.test')

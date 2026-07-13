@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
@@ -34,8 +35,7 @@
   <div class="body" id="t-body">…</div>
 </div>
 <script>
-const { ipcRenderer } = require('electron')
-ipcRenderer.on('toast-data', (event, { title, body }) => {
+window.lensy.toast.onData(({ title, body }) => {
   document.getElementById('t-title').textContent = title || 'Lensy'
   document.getElementById('t-body').textContent  = body  || ''
 })

@@ -2,6 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'">
 <title>Lensy — 剪贴板翻译</title>
 <link rel="stylesheet" href="theme.css">
 <style>
@@ -35,7 +36,7 @@
 </div>
 <div class="toast" id="toast"></div>
 <script>
-const { ipcRenderer } = require('electron')
+const api = window.lensy
 
 function toast(msg) {
   const t = document.getElementById('toast')
@@ -43,12 +44,12 @@ function toast(msg) {
   setTimeout(() => t.classList.remove('show'), 1200)
 }
 
-ipcRenderer.on('quick-text', async (event, text) => {
+api.translation.onQuickText(async text => {
   document.getElementById('src').textContent = text
   const tgt = document.getElementById('tgt')
   tgt.innerHTML = '<span class="spinner"></span>翻译中…'
   try {
-    const result = await ipcRenderer.invoke('translate-all', text)
+    const result = await api.translation.translateAll(text)
     tgt.textContent = result
   } catch (e) {
     tgt.textContent = '翻译失败：' + e.message
