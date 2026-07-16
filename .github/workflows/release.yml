@@ -31,7 +31,7 @@ jobs:
         run: npm test
 
       - name: Build unsigned Windows packages
-        run: npm run build -- --config.win.signAndEditExecutable=false
+        run: npm run build -- --config.win.signAndEditExecutable=false --publish never
 
       - name: Normalize artifact names
         shell: pwsh
