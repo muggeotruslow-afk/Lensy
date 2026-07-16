@@ -1,6 +1,6 @@
 {
   "name": "lensy",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Lensy — 框选屏幕翻译 + 单词查询 + Anki 生词本，Claude 风格暖色 UI",
   "main": "main.js",
   "scripts": {
@@ -9,7 +9,16 @@
     "build": "electron-builder --win --x64",
     "pack": "electron-builder --dir"
   },
-  "keywords": ["ocr", "translation", "electron", "deepseek", "tesseract", "anki", "vocabulary", "screenshot-translator"],
+  "keywords": [
+    "ocr",
+    "translation",
+    "electron",
+    "deepseek",
+    "tesseract",
+    "anki",
+    "vocabulary",
+    "screenshot-translator"
+  ],
   "author": "muggeotruslow-afk",
   "license": "MIT",
   "type": "commonjs",
@@ -43,14 +52,30 @@
       "node_modules/**/*"
     ],
     "extraResources": [
-      { "from": "ocr.ps1", "to": "ocr.ps1" },
-      { "from": "assets/tessdata", "to": "tessdata" }
+      {
+        "from": "ocr.ps1",
+        "to": "ocr.ps1"
+      },
+      {
+        "from": "assets/tessdata",
+        "to": "tessdata"
+      }
     ],
     "win": {
       "icon": "assets/icon.ico",
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "nsis": {
