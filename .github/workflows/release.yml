@@ -1,0 +1,71 @@
+﻿name: Publish Windows Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build unsigned Windows packages
+        run: npm run build -- --config.win.signAndEditExecutable=false
+
+      - name: Normalize artifact names
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          Rename-Item -LiteralPath "dist/Lensy Setup $version.exe" -NewName "Lensy-Setup-$version.exe"
+          Rename-Item -LiteralPath "dist/Lensy Setup $version.exe.blockmap" -NewName "Lensy-Setup-$version.exe.blockmap"
+          (Get-Content -LiteralPath "dist/latest.yml" -Raw).Replace("Lensy Setup $version.exe", "Lensy-Setup-$version.exe") | Set-Content -LiteralPath "dist/latest.yml" -NoNewline
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Lensy ${{ github.ref_name }} 正式版
+          generate_release_notes: false
+          body: |
+            ## Lensy 1.0.0 正式版
+
+            Windows 桌面截图翻译与生词本工具：框选文字后，完成 OCR、DeepSeek 翻译、点词释义与 Anki 导出。
+
+            ### 本次正式版
+            - 默认采用 Umi-OCR + DeepSeek，提高视频与美漫字幕等复杂字体的识别稳定性
+            - 支持 Windows OCR、Umi-OCR、Tesseract.js 三种引擎切换
+            - 支持截图冻结框选、逐词查询、生词本与 Anki CSV 导出
+            - 支持 Umi-OCR 自动发现、启动与本地服务检测
+
+            ### 下载说明
+            - `Lensy-Setup-1.0.0.exe`：推荐，Windows 安装版
+            - `Lensy 1.0.0.exe`：免安装便携版
+
+            > 当前发布包未进行代码签名。Windows 首次运行如出现 SmartScreen 提示，请确认来源为本仓库后选择“更多信息 → 仍要运行”。
+          files: |
+            dist/Lensy-Setup-*.exe
+            dist/Lensy-Setup-*.exe.blockmap
+            dist/Lensy *.exe
+            dist/latest.yml
+          prerelease: false
+          make_latest: true
